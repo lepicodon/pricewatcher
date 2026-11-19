@@ -5,12 +5,14 @@ from __future__ import annotations
 import base64
 from http.cookies import SimpleCookie
 import io
+import ipaddress
 import logging
 from pathlib import Path
 import re
 import shutil
 from typing import Any
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 import pytest
 
@@ -66,17 +68,34 @@ def _login_client(
     password: str | None = None,
     *,
     next_path: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[str, Any]:
     pw_val = password if password is not None else "correct-horse-battery"
     url = "/login" if next_path is None else f"/login?next={next_path}"
-    login_page = client.get(url)
+    login_page = client.get(url, headers=headers)
     assert login_page.status_code == 200
     login_csrf = _extract_meta_csrf(login_page.text)
     data = {"password": pw_val, "csrf_token": login_csrf}
     if next_path is not None:
         data["next"] = next_path
-    res = client.post("/login", data=data, follow_redirects=False)
+    res = client.post("/login", data=data, headers=headers, follow_redirects=False)
     return res.headers.get("location", ""), res
+
+
+def _make_scope_request(
+    *,
+    client_host: str | None = "testclient",
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> Request:
+    scope: dict[str, Any] = {
+        "type": "http",
+        "method": "POST",
+        "path": "/login",
+        "headers": headers or [],
+    }
+    if client_host is not None:
+        scope["client"] = (client_host, 12345)
+    return Request(scope)
 
 
 def test_scrypt_hash_and_verify() -> None:
@@ -176,6 +195,43 @@ def test_cli_default_host_is_loopback(
     finally:
         if "app" in recorded:
             recorded["app"].state.db.close()
+
+
+def test_cli_proxy_headers_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def _run_cli_with_env(sub_dir: Path, trusted_proxies: str | None) -> dict[str, Any]:
+        recorded: dict[str, Any] = {}
+
+        def fake_run(app_obj: Any, **kwargs: Any) -> None:
+            recorded["app"] = app_obj
+            recorded.update(kwargs)
+
+        cfg_dir = _init_cfg_dir(sub_dir)
+        monkeypatch.setattr("uvicorn.run", fake_run)
+        monkeypatch.setenv("PRICEWATCHER_CONFIG_DIR", str(cfg_dir))
+        monkeypatch.setenv("PRICEWATCHER_DB_PATH", str(sub_dir / "prices.db"))
+        if trusted_proxies is None:
+            monkeypatch.delenv("PRICEWATCHER_TRUSTED_PROXIES", raising=False)
+        else:
+            monkeypatch.setenv("PRICEWATCHER_TRUSTED_PROXIES", trusted_proxies)
+
+        rc = cli([])
+        try:
+            assert rc == 0
+            return recorded
+        finally:
+            if "app" in recorded:
+                recorded["app"].state.db.close()
+
+    unset_call = _run_cli_with_env(tmp_path / "unset", None)
+    assert unset_call["proxy_headers"] is False
+    assert unset_call["forwarded_allow_ips"] == "127.0.0.1"
+
+    set_call = _run_cli_with_env(tmp_path / "set", "172.18.0.0/16")
+    assert set_call["proxy_headers"] is True
+    assert set_call["forwarded_allow_ips"] == "172.18.0.0/16"
 
 
 def test_fail_closed_setup_mode_503(
@@ -421,6 +477,163 @@ def test_login_rate_limit_five_failures_then_429_and_reset(
                 assert bad.status_code == 401
     finally:
         db2.close()
+
+
+def test_trusted_proxy_parsing_and_client_ip_resolution() -> None:
+    assert auth.parse_trusted_proxies(None) == ()
+    assert auth.parse_trusted_proxies("") == ()
+    assert auth.parse_trusted_proxies(" ,  , ") == ()
+
+    parsed = auth.parse_trusted_proxies("TestClient, 172.16.0.0/12, 10.0.0.5, 2001:db8::/32")
+    assert parsed == (
+        "testclient",
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("10.0.0.5/32"),
+        ipaddress.ip_network("2001:db8::/32"),
+    )
+
+    assert auth.is_trusted_proxy(None, parsed) is False
+    assert auth.is_trusted_proxy("   ", ("*",)) is False
+    assert auth.is_trusted_proxy("172.18.0.5", ()) is False
+    assert auth.is_trusted_proxy("TESTCLIENT", parsed) is True
+    assert auth.is_trusted_proxy("172.18.0.5", parsed) is True
+    assert auth.is_trusted_proxy("10.0.0.5", parsed) is True
+    assert auth.is_trusted_proxy("2001:db8::1", parsed) is True
+    assert auth.is_trusted_proxy("198.51.100.1", parsed) is False
+    assert auth.is_trusted_proxy("198.51.100.1", ("*",)) is True
+
+    # Multi-hop X-Forwarded-For skips trailing trusted proxies and returns rightmost untrusted IP.
+    multi_hop_req = _make_scope_request(
+        client_host="testclient",
+        headers=[(b"x-forwarded-for", b"198.51.100.9, 172.18.0.5")],
+    )
+    assert auth.get_client_ip(multi_hop_req, parsed) == "198.51.100.9"
+
+    # Untrusted peer ignores X-Forwarded-For completely.
+    untrusted_req = _make_scope_request(
+        client_host="203.0.113.7",
+        headers=[(b"x-forwarded-for", b"198.51.100.9")],
+    )
+    assert auth.get_client_ip(untrusted_req, parsed) == "203.0.113.7"
+
+    # All-trusted hops fall back to parts[0]; empty/missing XFF falls back to peer.
+    all_trusted_req = _make_scope_request(
+        client_host="testclient",
+        headers=[(b"x-forwarded-for", b"172.17.0.2, 172.18.0.5")],
+    )
+    assert auth.get_client_ip(all_trusted_req, parsed) == "172.17.0.2"
+
+    comma_xff_req = _make_scope_request(
+        client_host="testclient",
+        headers=[(b"x-forwarded-for", b" , ")],
+    )
+    assert auth.get_client_ip(comma_xff_req, parsed) == "testclient"
+
+    no_client_req = _make_scope_request(client_host=None)
+    assert auth.get_client_ip(no_client_req, parsed) == "unknown"
+
+    manager = auth.AuthManager(
+        password_hash="",
+        insecure_no_auth=False,
+        session_secret=b"secret",
+        trusted_proxies="testclient,172.16.0.0/12",
+    )
+    assert manager.trusted_proxies == (
+        "testclient",
+        ipaddress.ip_network("172.16.0.0/12"),
+    )
+    assert manager.client_ip(multi_hop_req) == "198.51.100.9"
+
+
+def test_login_rate_limit_trusted_proxy_isolates_forwarded_ips(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRICEWATCHER_TRUSTED_PROXIES", "testclient,172.16.0.0/12")
+    app, _, db = _make_auth_app(tmp_path, monkeypatch)
+    try:
+        with TestClient(app) as client_one:
+            for _ in range(5):
+                _, bad = _login_client(
+                    client_one,
+                    password="wrong",
+                    headers={"X-Forwarded-For": "198.51.100.1"},
+                )
+                assert bad.status_code == 401
+
+            _, blocked = _login_client(
+                client_one,
+                password="correct-horse-battery",
+                headers={"X-Forwarded-For": "198.51.100.1"},
+            )
+            assert blocked.status_code == 429
+            assert int(blocked.headers["retry-after"]) >= 1
+
+        # Distinct forwarded IP behind the same trusted proxy is NOT locked out.
+        with TestClient(app) as client_two:
+            _, ok = _login_client(
+                client_two,
+                password="correct-horse-battery",
+                headers={"X-Forwarded-For": "198.51.100.2"},
+            )
+            assert ok.status_code == 303
+
+        # Multi-hop X-Forwarded-For resolves to the rightmost untrusted client IP (198.51.100.9).
+        with TestClient(app) as client_multi:
+            for _ in range(5):
+                _, bad = _login_client(
+                    client_multi,
+                    password="wrong",
+                    headers={"X-Forwarded-For": "198.51.100.9, 172.18.0.5"},
+                )
+                assert bad.status_code == 401
+
+            assert app.state.auth.rate_limiter.check_blocked("198.51.100.9") is not None
+            assert app.state.auth.rate_limiter.check_blocked("172.18.0.5") is None
+
+            _, blocked_direct = _login_client(
+                client_multi,
+                password="correct-horse-battery",
+                headers={"X-Forwarded-For": "198.51.100.9"},
+            )
+            assert blocked_direct.status_code == 429
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("trusted_env", [None, ""])
+def test_login_rate_limit_untrusted_proxy_ignores_spoofed_xff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    trusted_env: str | None,
+) -> None:
+    if trusted_env is None:
+        monkeypatch.delenv("PRICEWATCHER_TRUSTED_PROXIES", raising=False)
+    else:
+        monkeypatch.setenv("PRICEWATCHER_TRUSTED_PROXIES", trusted_env)
+
+    app, _, db = _make_auth_app(tmp_path, monkeypatch)
+    try:
+        with TestClient(app) as client:
+            for idx in range(5):
+                _, bad = _login_client(
+                    client,
+                    password="wrong",
+                    headers={"X-Forwarded-For": f"198.51.100.{idx + 10}"},
+                )
+                assert bad.status_code == 401
+
+            assert app.state.auth.rate_limiter.check_blocked("testclient") is not None
+
+            _, blocked = _login_client(
+                client,
+                password="correct-horse-battery",
+                headers={"X-Forwarded-For": "198.51.100.99"},
+            )
+            assert blocked.status_code == 429
+            assert int(blocked.headers["retry-after"]) >= 1
+    finally:
+        db.close()
 
 
 def test_csrf_enforcement_origins_headers_and_form_posts(

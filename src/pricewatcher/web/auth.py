@@ -18,6 +18,7 @@ from collections import defaultdict
 from collections.abc import Callable
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import math
@@ -70,6 +71,7 @@ _URL_B64_RE = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 _MUTATING_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
 AuthMode = Literal["setup", "insecure_no_auth", "auth"]
+TrustedProxyEntry = ipaddress.IPv4Network | ipaddress.IPv6Network | str
 
 
 def _decode_b64_strict(encoded: str) -> bytes | None:
@@ -226,6 +228,59 @@ def is_https_request(request: Request, *, cookie_secure_env: bool = False) -> bo
     return forwarded_proto == "https"
 
 
+def parse_trusted_proxies(raw: str | None) -> tuple[TrustedProxyEntry, ...]:
+    """Parse comma-separated trusted proxy IPs, CIDRs, hostnames, or '*'."""
+    if not raw:
+        return ()
+    entries: list[TrustedProxyEntry] = []
+    for chunk in raw.split(","):
+        item = chunk.strip()
+        if not item:
+            continue
+        if item == "*":
+            entries.append("*")
+            continue
+        try:
+            entries.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            entries.append(item.lower())
+    return tuple(entries)
+
+
+def is_trusted_proxy(host: str | None, trusted_proxies: tuple[TrustedProxyEntry, ...]) -> bool:
+    """Return True when host matches any configured trusted proxy entry."""
+    if not host or not trusted_proxies:
+        return False
+    normalized = host.strip().lower()
+    if not normalized:
+        return False
+    if "*" in trusted_proxies or normalized in trusted_proxies:
+        return True
+    try:
+        ip_obj = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return any(
+        isinstance(entry, (ipaddress.IPv4Network, ipaddress.IPv6Network)) and ip_obj in entry
+        for entry in trusted_proxies
+    )
+
+
+def get_client_ip(request: Request, trusted_proxies: tuple[TrustedProxyEntry, ...] = ()) -> str:
+    """Resolve client IP from peer host or rightmost untrusted X-Forwarded-For hop."""
+    peer_ip = request.client.host if request.client and request.client.host else "unknown"
+    if is_trusted_proxy(peer_ip, trusted_proxies):
+        xff = request.headers.get("x-forwarded-for", "").strip()
+        if xff:
+            parts = [part.strip() for part in xff.split(",") if part.strip()]
+            if parts:
+                for part in reversed(parts):
+                    if not is_trusted_proxy(part, trusted_proxies):
+                        return part
+                return parts[0]
+    return peer_ip
+
+
 def _urlsafe_b64_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
@@ -295,6 +350,7 @@ class AuthManager:
         cookie_secure_env: bool = False,
         session_ttl: int = SESSION_TTL_SECONDS,
         rate_limiter: LoginRateLimiter | None = None,
+        trusted_proxies: tuple[TrustedProxyEntry, ...] | str = (),
     ) -> None:
         self.password_hash = password_hash
         self.insecure_no_auth = insecure_no_auth
@@ -302,6 +358,11 @@ class AuthManager:
         self.cookie_secure_env = cookie_secure_env
         self.session_ttl = session_ttl
         self.rate_limiter = rate_limiter or LoginRateLimiter()
+        self.trusted_proxies: tuple[TrustedProxyEntry, ...] = (
+            parse_trusted_proxies(trusted_proxies)
+            if isinstance(trusted_proxies, str)
+            else tuple(trusted_proxies)
+        )
 
     @classmethod
     def from_env(cls) -> AuthManager:
@@ -309,6 +370,7 @@ class AuthManager:
         password_hash = os.environ.get("PRICEWATCHER_ADMIN_PASSWORD_HASH", "").strip()
         insecure_no_auth = os.environ.get("PRICEWATCHER_INSECURE_NO_AUTH", "").strip() == "1"
         cookie_secure_env = os.environ.get("PRICEWATCHER_COOKIE_SECURE", "").strip() == "1"
+        trusted_proxies = parse_trusted_proxies(os.environ.get("PRICEWATCHER_TRUSTED_PROXIES", ""))
 
         raw_secret = os.environ.get("PRICEWATCHER_SESSION_SECRET", "").strip()
         if not raw_secret:
@@ -323,6 +385,7 @@ class AuthManager:
             insecure_no_auth=insecure_no_auth,
             session_secret=raw_secret.encode("utf-8"),
             cookie_secure_env=cookie_secure_env,
+            trusted_proxies=trusted_proxies,
         )
         if manager.mode == "insecure_no_auth":
             logger.warning(
@@ -334,6 +397,10 @@ class AuthManager:
                 "PRICEWATCHER_ADMIN_PASSWORD_HASH is not configured; web UI is locked in 503 setup mode."
             )
         return manager
+
+    def client_ip(self, request: Request) -> str:
+        """Resolve the effective client IP for this request."""
+        return get_client_ip(request, self.trusted_proxies)
 
     @property
     def mode(self) -> AuthMode:

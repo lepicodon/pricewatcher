@@ -223,6 +223,7 @@ def test_env_example_documents_all_vars_without_secrets() -> None:
         "PRICEWATCHER_SESSION_SECRET",
         "PRICEWATCHER_INSECURE_NO_AUTH",
         "PRICEWATCHER_COOKIE_SECURE",
+        "PRICEWATCHER_TRUSTED_PROXIES",
         "PRICEWATCHER_ALLOW_PRIVATE_HOSTS",
         "PRICEWATCHER_CONTACT_URL",
         "PRICEWATCHER_MAX_RESPONSE_BYTES",
@@ -241,6 +242,7 @@ def test_env_example_documents_all_vars_without_secrets() -> None:
     assert vars_found["PRICEWATCHER_ADMIN_PASSWORD_HASH"] == ""
     assert vars_found["PRICEWATCHER_SESSION_SECRET"] == ""
     assert vars_found["PRICEWATCHER_INSECURE_NO_AUTH"] == ""
+    assert vars_found["PRICEWATCHER_TRUSTED_PROXIES"] == ""
     assert vars_found["SMTP_USER"] == ""
     assert vars_found["SMTP_PASS"] == ""
     assert "replace_with" in vars_found["WAHA_API_KEY"].lower()

@@ -394,7 +394,7 @@ async def login_submit(request: Request) -> HTMLResponse | JSONResponse | Redire
         password = str(form.get("password", ""))
         next_url = safe_next_path(str(form.get("next", "/")), default="/")
 
-    client_ip = request.client.host if request.client and request.client.host else "unknown"
+    client_ip = auth.client_ip(request)
     retry_after = auth.rate_limiter.check_blocked(client_ip)
     if retry_after is not None:
         headers = {"Retry-After": str(retry_after)}

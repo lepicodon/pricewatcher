@@ -459,7 +459,15 @@ def cli(argv: list[str] | None = None) -> int:
     settings = store.load_settings()
     port = args.port or settings.server.port or 8080
     app = create_app(store=store)
-    uvicorn.run(app, host=args.host, port=port, log_level="info")
+    trusted_proxies = os.environ.get("PRICEWATCHER_TRUSTED_PROXIES", "").strip()
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=port,
+        log_level="info",
+        proxy_headers=bool(trusted_proxies),
+        forwarded_allow_ips=trusted_proxies or "127.0.0.1",
+    )
     return 0
 
 
