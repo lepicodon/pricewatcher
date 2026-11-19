@@ -484,6 +484,41 @@ def test_csrf_enforcement_origins_headers_and_form_posts(
             )
             assert ok.status_code == 200
 
+            # Default port symmetry (:80 on http) and reverse-proxy X-Forwarded-Host pass.
+            ok_port = client.post(
+                "/api/watches/example-watch/toggle",
+                headers={
+                    "X-CSRF-Token": csrf,
+                    "Origin": "http://testserver:80",
+                    "Accept": "application/json",
+                },
+            )
+            assert ok_port.status_code == 200
+
+            ok_proxy = client.post(
+                "/api/watches/example-watch/toggle",
+                headers={
+                    "X-CSRF-Token": csrf,
+                    "Host": "pricewatcher:8080",
+                    "X-Forwarded-Host": "pricewatcher.docker",
+                    "Origin": "http://pricewatcher.docker",
+                    "Accept": "application/json",
+                },
+            )
+            assert ok_proxy.status_code == 200
+
+            # Cross-origin Origin is still rejected even when X-Forwarded-Host is present.
+            bad_proxy = client.post(
+                "/api/watches/example-watch/toggle",
+                headers={
+                    "X-CSRF-Token": csrf,
+                    "Host": "pricewatcher:8080",
+                    "X-Forwarded-Host": "pricewatcher.docker",
+                    "Origin": "https://evil.example",
+                },
+            )
+            assert bad_proxy.status_code == 403
+
             # application/x-www-form-urlencoded POST passes CSRF middleware and
             # downstream request.form() parses all fields cleanly.
             form_payload = {

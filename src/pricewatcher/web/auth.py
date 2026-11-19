@@ -478,22 +478,38 @@ class AuthManager:
             )
 
 
+def _normalize_netloc(netloc: str, scheme: str) -> str:
+    val = netloc.strip().lower()
+    if scheme == "http" and val.endswith(":80"):
+        return val[:-3]
+    if scheme == "https" and val.endswith(":443"):
+        return val[:-4]
+    return val
+
+
 def _hosts_match(candidate_netloc: str, candidate_scheme: str, host_header: str) -> bool:
-    cand = candidate_netloc.strip().lower()
-    host = host_header.strip().lower()
-    if not cand or not host:
-        return False
-    if cand == host:
-        return True
-    if candidate_scheme == "http" and host == f"{cand}:80":
-        return True
-    return candidate_scheme == "https" and host == f"{cand}:443"
+    cand = _normalize_netloc(candidate_netloc, candidate_scheme)
+    host = _normalize_netloc(host_header, candidate_scheme)
+    return bool(cand and host and cand == host)
+
+
+def _request_target_hosts(request: Request) -> list[str]:
+    hosts: list[str] = []
+    host = (request.headers.get("host") or "").strip()
+    if host:
+        hosts.append(host)
+    raw_xfh = (request.headers.get("x-forwarded-host") or "").strip()
+    if raw_xfh:
+        first_xfh = raw_xfh.split(",", 1)[0].strip()
+        if first_xfh and first_xfh not in hosts:
+            hosts.append(first_xfh)
+    return hosts
 
 
 def _validate_same_origin(request: Request) -> bool:
-    """Validate Origin (if present) or Referer (if Origin absent) matches Host."""
-    host = (request.headers.get("host") or "").strip()
-    if not host:
+    """Validate Origin (if present) or Referer (if Origin absent) matches Host/X-Forwarded-Host."""
+    target_hosts = _request_target_hosts(request)
+    if not target_hosts:
         return False
 
     origin = request.headers.get("origin")
@@ -502,7 +518,7 @@ def _validate_same_origin(request: Request) -> bool:
         scheme = parsed.scheme.lower()
         if scheme not in {"http", "https"} or parsed.username or parsed.password:
             return False
-        return _hosts_match(parsed.netloc, scheme, host)
+        return any(_hosts_match(parsed.netloc, scheme, target) for target in target_hosts)
 
     referer = request.headers.get("referer")
     if referer is not None:
@@ -510,7 +526,7 @@ def _validate_same_origin(request: Request) -> bool:
         scheme = parsed.scheme.lower()
         if scheme not in {"http", "https"} or parsed.username or parsed.password:
             return False
-        return _hosts_match(parsed.netloc, scheme, host)
+        return any(_hosts_match(parsed.netloc, scheme, target) for target in target_hosts)
 
     return True
 
@@ -620,6 +636,15 @@ class AuthCsrfMiddleware(BaseHTTPMiddleware):
 
         if request.method in _MUTATING_METHODS:
             if not _validate_same_origin(request):
+                logger.warning(
+                    "Cross-origin %s %s rejected (origin=%r referer=%r host=%r x_forwarded_host=%r)",
+                    request.method,
+                    request.url.path,
+                    request.headers.get("origin"),
+                    request.headers.get("referer"),
+                    request.headers.get("host"),
+                    request.headers.get("x-forwarded-host"),
+                )
                 return JSONResponse(
                     {"ok": False, "error": "Cross-origin request rejected."},
                     status_code=403,
