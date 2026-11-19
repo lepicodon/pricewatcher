@@ -594,6 +594,24 @@ def test_database_transaction_commit_and_rollback(tmp_path: Path) -> None:
         db.close()
 
 
+def test_database_wal_and_synchronous_normal(tmp_path: Path) -> None:
+    db = Database(tmp_path / "wal.db")
+    try:
+        journal_mode = db._conn.execute("PRAGMA journal_mode;").fetchone()[0]
+        synchronous = db._conn.execute("PRAGMA synchronous;").fetchone()[0]
+        assert str(journal_mode).lower() == "wal"
+        assert synchronous == 1
+    finally:
+        db.close()
+
+    mem_db = Database(":memory:")
+    try:
+        assert mem_db._conn.execute("PRAGMA journal_mode;").fetchone()[0] == "memory"
+        assert mem_db._conn.execute("PRAGMA synchronous;").fetchone()[0] == 1
+    finally:
+        mem_db.close()
+
+
 def test_dashboard_summary_accuracy_and_batching(tmp_path: Path) -> None:
     db = Database(tmp_path / "dash.db")
     try:

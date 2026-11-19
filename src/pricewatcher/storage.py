@@ -126,6 +126,7 @@ class Database:
         with self._lock:
             cur = self._conn.cursor()
             cur.execute("PRAGMA journal_mode=WAL;")
+            cur.execute("PRAGMA synchronous=NORMAL;")
             cur.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS observations (
