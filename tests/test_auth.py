@@ -1149,7 +1149,7 @@ def test_xss_escaping_csp_headers_and_zero_inline_scripts_or_styles(
 
             _login_client(client)
 
-            for path in ("/", "/watches/example-watch", "/manage", "/settings"):
+            for path in ("/", "/watches/example-watch", "/manage", "/settings", "/packs"):
                 res = client.get(path)
                 assert res.status_code == 200
                 assert res.headers["content-security-policy"] == auth.CSP_POLICY
@@ -1165,6 +1165,9 @@ def test_xss_escaping_csp_headers_and_zero_inline_scripts_or_styles(
                 assert 'style="' not in html
                 assert "style='" not in html
 
+                assert '<script src="/static/theme.js"></script>' in html
+                assert '<script type="module" src="/static/app.js"></script>' in html
+
                 script_tags = re.findall(r"<script\b[^>]*>", html, flags=re.IGNORECASE)
                 assert script_tags
                 for tag in script_tags:
@@ -1178,12 +1181,26 @@ def test_xss_escaping_csp_headers_and_zero_inline_scripts_or_styles(
                 for form_html in forms:
                     assert 'name="csrf_token"' in form_html
 
-            app_js = Path(router.__file__).resolve().parent / "static" / "app.js"
-            theme_js = Path(router.__file__).resolve().parent / "static" / "theme.js"
-            for js_file in (app_js, theme_js):
+            static_dir = Path(router.__file__).resolve().parent / "static"
+            js_files = sorted(static_dir.glob("*.js"))
+            expected_modules = {
+                "app.js",
+                "utils.js",
+                "ui.js",
+                "manage.js",
+                "settings.js",
+                "theme.js",
+            }
+            assert expected_modules.issubset({js_file.name for js_file in js_files})
+            for js_file in js_files:
                 content = js_file.read_text(encoding="utf-8")
-                assert ".style." not in content
-                assert "innerHTML" not in content
+                assert ".style." not in content, f".style. found in {js_file.name}"
+                assert "innerHTML" not in content, f"innerHTML found in {js_file.name}"
+                static_res = client.get(f"/static/{js_file.name}")
+                assert static_res.status_code == 200
+                assert "javascript" in static_res.headers.get("content-type", "").lower()
+                assert static_res.headers.get("content-security-policy") == auth.CSP_POLICY
+                assert static_res.headers.get("x-content-type-options") == "nosniff"
     finally:
         db.close()
 
