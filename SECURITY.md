@@ -40,7 +40,7 @@ PriceWatcher is a self-hosted price monitoring daemon and web administration das
 - **Path Traversal & Error Handling:** Resource IDs pass `ConfigStore.sanitize_slug` and parent-directory verification; unexpected server errors return generic `"Internal server error"` responses without internal paths or stack traces.
 
 ### 6. Container & Supply Chain Hardening ([Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml), [docker-publish.yml](.github/workflows/docker-publish.yml))
-- Digest-pinned base image (`python:3.14-slim-bookworm@sha256:...`), pinned transitive runtime packages in [requirements.lock](requirements.lock) installed with `--no-deps`, and startup privilege drop to non-root `appuser` (`UID/GID 10001` or `PUID`/`PGID`) after preparing bind-mounted `/data` and `/app/config` ownership.
+- Digest-pinned base image (`python:3.14-slim-bookworm@sha256:...`), pinned transitive runtime packages in [requirements.lock](requirements.lock) installed with `--no-deps`, and non-root container execution via `USER 10001` (`appuser`), with startup privilege drop in `pricewatcher.main` to `PUID`/`PGID` (`10001:10001`) if explicitly started as root (`--user 0:0`) to prepare bind-mounted `/data` and `/app/config` ownership.
 - [docker-compose.yml](docker-compose.yml) binds `"127.0.0.1:8080:8080"` (loopback-only, preventing LAN plain-HTTP exposure that would bypass Traefik TLS), defaults `PRICEWATCHER_COOKIE_SECURE` to `1`, and passes `PRICEWATCHER_TRUSTED_PROXIES` (default empty/none) for reverse-proxy client IP forwarding.
 - CI workflow pins all GitHub Actions by 40-char commit SHA, restricts workflow permissions per job, and runs `ruff check`, `ruff format --check`, `mypy`, `pip-audit`, and `pytest` prior to image publishing.
 

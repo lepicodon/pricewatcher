@@ -27,7 +27,11 @@ RUN groupadd --gid 10001 appuser && \
     mkdir -p /data /app/config/watches && \
     chown -R appuser:appuser /app /data
 
-# Entrypoint prepares bind-mounted /data and /app/config ownership and drops to appuser (10001:10001)
+# Container starts as non-root appuser (USER 10001, UID/GID 10001).
+# If explicitly started as root (--user 0:0), pricewatcher.main prepares bind-mounted
+# /data and /app/config ownership and drops privileges to PUID/PGID (10001:10001).
+USER 10001
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

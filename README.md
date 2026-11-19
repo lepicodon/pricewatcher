@@ -101,7 +101,7 @@ Open `http://127.0.0.1:8080` and sign in with your admin password (note: `.env.e
 
 ## Docker Deployment
 
-Multi-arch images (`linux/amd64` and `linux/arm64`) are built from a digest-pinned Debian Bookworm Python 3.14 base image, install pinned dependencies from [requirements.lock](requirements.lock), prepare bind-mounted `/data` and `/app/config` ownership before dropping privileges to non-root `appuser` (`uid 10001`, overridable via `PUID`/`PGID`), expose port `8080`, and include a `/healthz` `HEALTHCHECK`.
+Multi-arch images (`linux/amd64` and `linux/arm64`) are built from a digest-pinned Debian Bookworm Python 3.14 base image, install pinned dependencies from [requirements.lock](requirements.lock), run as non-root `USER 10001` (`appuser`) by default (ensure host bind mounts `./config` and `./data` are writable by UID/GID `10001`, e.g. `chown -R 10001:10001 ./config ./data`, or run with `--user 0:0` and `PUID`/`PGID` so `pricewatcher.main` adjusts ownership before dropping privileges), expose port `8080`, and include a `/healthz` `HEALTHCHECK`.
 
 ### Option A: Using Docker Compose (Build from Source or Pre-Built GHCR Image)
 

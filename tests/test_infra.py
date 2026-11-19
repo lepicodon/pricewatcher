@@ -94,6 +94,13 @@ def test_dockerfile_hardening() -> None:
     assert "groupadd --gid 10001 appuser" in text
     assert "useradd --create-home --uid 10001 --gid 10001 appuser" in text
     assert "chown -R appuser:appuser /app /data" in text
+    assert "USER 10001" in lines
+    assert (
+        lines.index("chown -R appuser:appuser /app /data")
+        < lines.index("USER 10001")
+        < lines.index("EXPOSE 8080")
+    )
+    assert "Entrypoint prepares" not in text
     assert any(
         line.upper().startswith("HEALTHCHECK ") or "http://127.0.0.1:8080/healthz" in line
         for line in lines
