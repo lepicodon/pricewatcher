@@ -1,0 +1,311 @@
+# PriceWatcher example configuration.
+# Copy this file to config/settings.yaml and customize for your environment.
+
+server:
+  port: 8080
+  timezone: "America/New_York"
+
+notifications:
+  waha:
+    # Behind Traefik on NAS Docker network `traefik` (port 80).
+    # Override via WAHA_URL env var for local testing if needed.
+    url: "http://waha.docker"
+    api_key_env: "WAHA_API_KEY"
+    session: "pricewatcher"
+
+  email:
+    enabled: false
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    use_tls: true
+    user_env: "SMTP_USER"
+    pass_env: "SMTP_PASS"
+    from_addr: "pricewatcher@example.com"
+
+  # Named recipients selectable independently per watch
+  recipients:
+    primary:
+      name: "Primary User"
+      waha_chat_id: "15550000001@c.us"
+      email: "user@example.com"
+    partner:
+      name: "Partner"
+      waha_chat_id: "15557654321@c.us"
+      email: "partner@example.com"
+    family_group:
+      name: "Family Deals Group"
+      waha_chat_id: "120363000000000000@g.us"
+
+# Reusable source templates selectable when creating a new watch or managing packs in /settings
+source_packs:
+  universal_deals:
+    label: "Universal Marketplace & Deal Feeds (Any Product)"
+    description: "Craigslist For Sale (DC, Baltimore, NY) + Slickdeals search RSS + Reddit r/deals."
+    sources:
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "Craigslist DC For Sale ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/sss?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore For Sale ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/sss?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+      - name: "Craigslist NY For Sale ({query})"
+        adapter: html_css
+        url_template: "https://newyork.craigslist.org/search/sss?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist NY"
+      - name: "Reddit r/deals"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/deals/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+
+  automotive_vehicles:
+    label: "Cars, Trucks & SUVs (Used & New)"
+    description: "TrueCar dealer inventory ({make}/{model}) + Craigslist Cars & Trucks + Classic.com."
+    sources:
+      - name: "TrueCar Used ({query})"
+        adapter: html_css
+        url_template: "https://www.truecar.com/used-cars-for-sale/listings/{make}/{model}/"
+        options:
+          default_condition: "used"
+      - name: "TrueCar New ({query})"
+        adapter: html_css
+        url_template: "https://www.truecar.com/new-cars-for-sale/listings/{make}/{model}/"
+        options:
+          default_condition: "new"
+      - name: "Craigslist DC Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+      - name: "Classic.com ({query})"
+        adapter: html_css
+        url_template: "https://www.classic.com/search?q={query_encoded}"
+        options:
+          item_selector: "div.border-gray-300.rounded-lg"
+          title_selector: "h3 a[href*='/veh/']"
+          price_selector: ":scope"
+          link_selector: "h3 a[href*='/veh/']"
+          default_condition: "used"
+          merchant: "Classic.com"
+
+  classic_collector_cars:
+    label: "Classic, Vintage & Collector Vehicles"
+    description: "Classic.com collector search + Craigslist regional Cars & Trucks + Bring a Trailer RSS."
+    sources:
+      - name: "Classic.com Collector Search ({query})"
+        adapter: html_css
+        url_template: "https://www.classic.com/search?q={query_encoded}"
+        options:
+          item_selector: "div.border-gray-300.rounded-lg"
+          title_selector: "h3 a[href*='/veh/']"
+          price_selector: ":scope"
+          link_selector: "h3 a[href*='/veh/']"
+          default_condition: "used"
+          merchant: "Classic.com"
+      - name: "Craigslist DC Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+      - name: "Craigslist NY Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://newyork.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist NY"
+      - name: "Bring a Trailer Auctions RSS"
+        adapter: rss
+        url_template: "https://bringatrailer.com/feed/"
+
+  apple_hardware:
+    label: "Apple Hardware & Authorized Resellers"
+    description: "Apple Certified Refurbished, Expercom, DataVision, Abt, and Apple deal RSS."
+    sources:
+      - name: "Expercom Search ({query})"
+        adapter: json_api
+        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "DataVision Search ({query})"
+        adapter: json_api
+        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Abt Search ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "Apple Refurbished Mac"
+        adapter: json_api
+        url_template: "https://www.apple.com/shop/refurbished/mac"
+        options:
+          mode: apple_refurb
+      - name: "Reddit r/appledeals"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/appledeals/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+
+  electronics_tech:
+    label: "Phones, Computers, Cameras & Tech"
+    description: "Abt Electronics + Swappa Marketplace + DataVision + Expercom + Slickdeals."
+    sources:
+      - name: "Abt Electronics ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "Swappa Marketplace ({query})"
+        adapter: html_css
+        url_template: "https://swappa.com/search?q={query_encoded}"
+        options:
+          item_selector: "div.cell_product"
+          title_selector: "a[href*='/listings/']"
+          price_selector: ":scope"
+          link_selector: "a[href*='/listings/']"
+          default_condition: "used"
+          merchant: "Swappa"
+      - name: "DataVision Search ({query})"
+        adapter: json_api
+        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Expercom Search ({query})"
+        adapter: json_api
+        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+
+  home_furniture_appliances:
+    label: "Home, Office Furniture & Appliances"
+    description: "Abt Appliances & Home + Craigslist Furniture (DC & Baltimore) + Craigslist Appliances + Slickdeals."
+    sources:
+      - name: "Abt Appliances & Home ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "Craigslist DC Furniture ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/fua?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist DC Appliances ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/ppa?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore Furniture ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/fua?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+
+  bikes_outdoor_sports:
+    label: "Bicycles, E-Bikes & Sporting Goods"
+    description: "Craigslist Bicycles (DC & Baltimore) + Craigslist Sporting Goods + Slickdeals."
+    sources:
+      - name: "Craigslist DC Bicycles ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/bia?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore Bicycles ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/bia?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+      - name: "Craigslist DC Sporting Goods ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/sga?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"

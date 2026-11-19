@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Manage | PriceWatcher{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Create &amp; Manage Watches</h1>
+    <p class="muted">Every edit validates with Pydantic and writes directly to <code>config/watches/&lt;id&gt;.yaml</code>.</p>
+  </div>
+  <div class="actions-row">
+    <a class="btn btn-primary btn-sm" href="/manage?new=1">+ New Blank Watch</a>
+  </div>
+</div>
+
+{% if flash %}
+<p class="notice {% if flash_ok %}notice-good{% else %}notice-bad{% endif %}" role="status" aria-live="polite">
+  {{ flash }}
+</p>
+{% endif %}
+
+<section class="card stack-md section-gap-sm">
+  <h2>Existing Watches</h2>
+  {% if watches %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Watch</th>
+          <th scope="col">Status</th>
+          <th scope="col">Sources</th>
+          <th scope="col" data-no-sort>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in watches %}
+        {% set st = w.effective_status() %}
+        <tr>
+          <td>
+            <strong>{{ w.name }}</strong><br>
+            <code class="muted">{{ w.id }}.yaml</code>
+          </td>
+          <td><span class="badge badge-{{ st }}">{{ st | capitalize }}</span></td>
+          <td class="num">{{ w.sources | length }}</td>
+          <td>
+            <div class="actions-row actions-nowrap">
+              <a class="btn btn-sm btn-icon" href="{{ ('/manage?edit=' ~ (w.id | urlencode)) | safe_url }}" aria-label="Edit {{ w.name }}" title="Edit watch">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"></path>
+                </svg>
+              </a>
+              <form action="/api/watches/{{ w.id }}/toggle" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-icon" aria-label="{{ 'Pause' if w.enabled else 'Enable' }} {{ w.name }}" title="{{ 'Pause watch' if w.enabled else 'Enable watch' }}">
+                  {% if w.enabled %}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                  </svg>
+                  {% else %}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polygon points="6 4 20 12 6 20 6 4"></polygon>
+                  </svg>
+                  {% endif %}
+                </button>
+              </form>
+              <form action="/api/watches/{{ w.id }}/duplicate" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-icon" aria-label="Duplicate {{ w.name }}" title="Duplicate watch">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </form>
+              <button
+                type="button"
+                class="btn btn-sm btn-icon btn-danger"
+                commandfor="delete-watch-dialog"
+                command="show-modal"
+                data-delete-watch-id="{{ w.id }}"
+                data-delete-watch-name="{{ w.name }}"
+                aria-label="Delete {{ w.name }}"
+                title="Delete watch"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                  <path d="M10 11v6M14 11v6"></path>
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No watches saved yet.</p>
+  {% endif %}
+</section>
+
+<section class="card stack-md">
+  <h2>{{ "Edit Watch: " ~ editing.name if is_edit else "Create New Watch" }}</h2>
+
+  <form id="manage-watch-form" action="/api/watches" method="POST" data-validate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="is_edit" value="{{ 'true' if is_edit else 'false' }}">
+
+    <div id="manage-form-tabs" class="pack-tabs" role="tablist" aria-label="Watch configuration sections">
+      <button type="button" class="pack-tab" role="tab" id="manage-tab-identity" aria-controls="manage-panel-identity" aria-selected="true" data-manage-tab="identity">
+        <span>1. Identity &amp; Schedule</span>
+      </button>
+      <button type="button" class="pack-tab" role="tab" id="manage-tab-pricing" aria-controls="manage-panel-pricing" aria-selected="false" data-manage-tab="pricing">
+        <span>2. Price Rules &amp; Alerts</span>
+      </button>
+      <button type="button" class="pack-tab" role="tab" id="manage-tab-matching" aria-controls="manage-panel-matching" aria-selected="false" data-manage-tab="matching">
+        <span>3. Keywords &amp; Specs</span>
+      </button>
+      <button type="button" class="pack-tab" role="tab" id="manage-tab-sources" aria-controls="manage-panel-sources" aria-selected="false" data-manage-tab="sources">
+        <span>4. Sources &amp; Discovery</span>
+        <span class="pack-tab-count">{{ editing.sources | length }}</span>
+      </button>
+    </div>
+
+    <fieldset class="manage-panel" role="tabpanel" id="manage-panel-identity" aria-labelledby="manage-tab-identity" data-manage-panel="identity">
+      <legend>Identity &amp; Schedule</legend>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="watch-name">Product / Watch Name</label>
+          <input type="text" id="watch-name" name="name" required value="{{ editing.name }}" placeholder="e.g. Aventon Level.2 E-Bike">
+        </div>
+
+        <div class="form-group">
+          <label for="watch-id">Watch ID (YAML filename slug)</label>
+          <input
+            type="text"
+            id="watch-id"
+            name="id"
+            required
+            pattern="[a-z0-9][a-z0-9_-]{1,62}"
+            aria-describedby="watch-id-help"
+            value="{{ editing.id }}"
+            {% if is_edit %}readonly{% endif %}
+          >
+          <span id="watch-id-help" class="hint">Lowercase letters, numbers, hyphens, underscores (2–63 chars).</span>
+        </div>
+
+        <div class="form-group">
+          <label for="watch-query">Default Search Query (for Source Packs)</label>
+          <input type="text" id="watch-query" name="query" value="{{ editing.query }}" placeholder="e.g. Mac Studio M5 Max">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="interval-minutes">Poll Interval (min)</label>
+          <input type="number" id="interval-minutes" name="interval_minutes" min="1" max="1440" required value="{{ editing.schedule.interval_minutes }}">
+        </div>
+        <div class="form-group">
+          <label for="jitter-seconds">Jitter (sec)</label>
+          <input type="number" id="jitter-seconds" name="jitter_seconds" min="0" max="3600" required value="{{ editing.schedule.jitter_seconds }}">
+        </div>
+        <div class="form-group">
+          <label for="duration-days">Duration (days, blank for ongoing)</label>
+          <input type="number" id="duration-days" name="duration_days" min="1" max="3650" value="{{ editing.schedule.duration_days if editing.schedule.duration_days is not none else '' }}">
+        </div>
+        <div class="form-group">
+          <label for="start-at">Start Timestamp (ISO-8601)</label>
+          <input type="text" id="start-at" name="start_at" value="{{ editing.schedule.start_at.isoformat() if editing.schedule.start_at else '' }}" placeholder="2026-11-15T00:00:00-05:00">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="manage-panel" role="tabpanel" id="manage-panel-pricing" aria-labelledby="manage-tab-pricing" data-manage-panel="pricing" hidden>
+      <legend>Price Rules &amp; Alerts</legend>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="price-min">Min Price ($)</label>
+          <input type="number" step="0.01" id="price-min" name="price_min" value="{{ editing.rules.price.min }}">
+        </div>
+        <div class="form-group">
+          <label for="price-max">Max Price ($)</label>
+          <input type="number" step="0.01" id="price-max" name="price_max" value="{{ editing.rules.price.max }}">
+        </div>
+        <div class="form-group">
+          <label for="price-target">Target Alert Price ($)</label>
+          <input type="number" step="0.01" id="price-target" name="price_target" value="{{ editing.rules.price.target if editing.rules.price.target is not none else '' }}">
+        </div>
+        <div class="form-group">
+          <label for="price-msrp">MSRP Reference ($)</label>
+          <input type="number" step="0.01" id="price-msrp" name="price_msrp" value="{{ editing.rules.price.msrp if editing.rules.price.msrp is not none else '' }}">
+        </div>
+        <div class="form-group">
+          <label for="min-drop-delta">Min Drop Delta ($)</label>
+          <input type="number" step="0.01" id="min-drop-delta" name="min_drop_delta" value="{{ editing.rules.price.min_drop_delta }}">
+        </div>
+        <div class="form-group">
+          <label for="cooldown-hours">Cooldown (hours)</label>
+          <input type="number" step="0.5" id="cooldown-hours" name="cooldown_hours" value="{{ editing.rules.price.cooldown_hours }}">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Notify Recipients</label>
+        <div class="choice-group">
+          {% for key, rec in settings.notifications.recipients.items() %}
+          <label class="choice-pill">
+            <input type="checkbox" name="alert_recipients" value="{{ key }}" {% if key in editing.alerts.recipients %}checked{% endif %}>
+            <span>{{ rec.name }} (<code>{{ key }}</code>)</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Delivery Mode</label>
+        <div class="choice-group">
+          {% for mode, lbl in [
+            ("waha_with_email_fallback", "WAHA + Email Fallback"),
+            ("waha_only", "WAHA Only"),
+            ("email_only", "Email Only"),
+            ("all", "All Channels")
+          ] %}
+          <label class="choice-pill">
+            <input type="radio" name="delivery" value="{{ mode }}" {% if editing.alerts.delivery == mode %}checked{% endif %}>
+            <span>{{ lbl }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <label class="choice-pill">
+        <input type="checkbox" name="send_startup_summary" value="true" {% if editing.alerts.send_startup_summary %}checked{% endif %}>
+        <span>Send baseline startup summary on first run</span>
+      </label>
+    </fieldset>
+
+    <fieldset class="manage-panel" role="tabpanel" id="manage-panel-matching" aria-labelledby="manage-tab-matching" data-manage-panel="matching" hidden>
+      <legend>Matching Keywords &amp; Specs</legend>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="include-groups">Include Keyword Groups (one AND group per line, comma-separated OR terms)</label>
+          <textarea id="include-groups" name="include_groups_text">{{ include_groups_text }}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="exclude-keywords">Exclude Keywords (comma or newline separated)</label>
+          <textarea id="exclude-keywords" name="exclude_keywords_text">{{ exclude_keywords_text }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="tier-by">Tier By Fields (comma separated)</label>
+          <input type="text" id="tier-by" name="tier_by_text" value="{{ editing.rules.tier_by | join(', ') }}" placeholder="ram_gb, ssd_gb, condition">
+        </div>
+        <div class="form-group">
+          <label for="extractors-json">Spec Extractors JSON (optional)</label>
+          <textarea id="extractors-json" name="extractors_json">{{ extractors_json }}</textarea>
+        </div>
+      </div>
+
+      <div class="form-group mb-0">
+        <label>Allowed Conditions &amp; State</label>
+        <div class="choice-group">
+          {% for cond in ["new", "refurbished", "open-box", "used"] %}
+          <label class="choice-pill">
+            <input type="checkbox" name="conditions_allowed" value="{{ cond }}" {% if cond in editing.rules.conditions_allowed %}checked{% endif %}>
+            <span>{{ cond }}</span>
+          </label>
+          {% endfor %}
+          <label class="choice-pill">
+            <input type="checkbox" name="require_in_stock" value="true" {% if editing.rules.require_in_stock %}checked{% endif %}>
+            <span>Require In Stock</span>
+          </label>
+          <label class="choice-pill">
+            <input type="checkbox" name="enabled" value="true" {% if editing.enabled %}checked{% endif %}>
+            <span>Watch Enabled</span>
+          </label>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="manage-panel" role="tabpanel" id="manage-panel-sources" aria-labelledby="manage-tab-sources" data-manage-panel="sources" hidden>
+      <legend>Sources &amp; Live URL Discovery</legend>
+
+      <search class="form-grid form-grid-end mb-md">
+        <div>
+          <label for="vendor-search-input">Search Vendors &amp; Deal Feeds for Item</label>
+          <input type="search" id="vendor-search-input" value="{{ editing.query or editing.name }}" placeholder="e.g. Toyota Tundra, Herman Miller Aeron, Galaxy S25 Ultra">
+        </div>
+        <div>
+          <button type="button" id="vendor-search-btn" class="btn btn-primary">Search Vendors for Item</button>
+        </div>
+      </search>
+      <div id="vendor-search-output" class="stack-sm mb-md" aria-live="polite"></div>
+
+      <div class="form-grid form-grid-end mb-md">
+        <div>
+          <label for="source-pack-select">Add from Source Pack</label>
+          <select id="source-pack-select">
+            <option value="">Choose a source pack...</option>
+            {% for pack_id, pack in settings.source_packs.items() %}
+            <option value="{{ pack_id }}">{{ pack.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="actions-row">
+          <button type="button" id="load-pack-btn" class="btn">Load Pack into Watch</button>
+          <a href="/settings#source-packs-section" class="btn btn-sm">Manage Source Packs &amp; Vendors</a>
+        </div>
+      </div>
+
+      <div class="form-grid form-grid-end mb-md">
+        <div>
+          <label for="probe-url-input">Paste Any Vendor / Feed URL to Probe Live</label>
+          <input type="url" id="probe-url-input" placeholder="https://expercom.com/collections/mac-studio">
+        </div>
+        <div>
+          <button type="button" id="probe-url-btn" class="btn">Probe Source</button>
+        </div>
+      </div>
+      <div id="probe-output" class="stack-sm mb-md" aria-live="polite"></div>
+
+      <div id="sources-list">
+        {% for src in editing.sources %}
+        <div class="source-row">
+          <div>
+            <label for="src-name-{{ loop.index0 }}">Source Name</label>
+            <input type="text" id="src-name-{{ loop.index0 }}" name="source_name" required value="{{ src.name }}">
+          </div>
+          <div>
+            <label for="src-adapter-{{ loop.index0 }}">Adapter</label>
+            <select id="src-adapter-{{ loop.index0 }}" name="source_adapter">
+              {% for ad in ["rss", "json_api", "html_css", "appleinsider"] %}
+              <option value="{{ ad }}" {% if src.adapter == ad %}selected{% endif %}>{{ ad }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="src-url-{{ loop.index0 }}">URL</label>
+            <input type="url" id="src-url-{{ loop.index0 }}" name="source_url" required value="{{ src.url }}">
+            <input type="hidden" name="source_options_json" value='{{ src.options | tojson }}'>
+            <input type="hidden" name="source_render_js" value="{{ 'true' if src.render_js else 'false' }}">
+          </div>
+          <button type="button" class="btn btn-sm btn-danger" data-remove-source>Remove</button>
+        </div>
+        {% endfor %}
+      </div>
+
+      <button type="button" id="add-source-btn" class="btn btn-sm">+ Add Blank Source Row</button>
+    </fieldset>
+
+    <div class="actions-row">
+      <button type="submit" class="btn btn-primary">Save Watch YAML</button>
+      <a class="btn" href="/">Cancel</a>
+    </div>
+  </form>
+</section>
+
+<dialog id="delete-watch-dialog" closedby="any" aria-labelledby="delete-dialog-title">
+  <h2 id="delete-dialog-title">Delete Watch?</h2>
+  <p>Are you sure you want to delete <strong id="delete-watch-name"></strong> and remove its YAML file from <code>config/watches/</code>?</p>
+  <form id="delete-watch-form" method="POST" action="">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="actions-row">
+      <button type="submit" class="btn btn-danger">Confirm Delete</button>
+      <button type="button" class="btn" commandfor="delete-watch-dialog" command="close">Cancel</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

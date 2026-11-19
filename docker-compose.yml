@@ -1,0 +1,37 @@
+services:
+  pricewatcher:
+    build:
+      context: .
+      args:
+        INSTALL_PLAYWRIGHT: ${INSTALL_PLAYWRIGHT:-false}
+    image: pricewatcher:latest
+    container_name: pricewatcher
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: ${TZ:-America/New_York}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PRICEWATCHER_DB_PATH: /data/prices.db
+      PRICEWATCHER_CONFIG_DIR: /app/config
+      PRICEWATCHER_ADMIN_PASSWORD_HASH: ${PRICEWATCHER_ADMIN_PASSWORD_HASH:-}
+      PRICEWATCHER_SESSION_SECRET: ${PRICEWATCHER_SESSION_SECRET:-}
+      PRICEWATCHER_INSECURE_NO_AUTH: ${PRICEWATCHER_INSECURE_NO_AUTH:-}
+      PRICEWATCHER_COOKIE_SECURE: ${PRICEWATCHER_COOKIE_SECURE:-}
+      PRICEWATCHER_ALLOW_PRIVATE_HOSTS: ${PRICEWATCHER_ALLOW_PRIVATE_HOSTS:-}
+      PRICEWATCHER_CONTACT_URL: ${PRICEWATCHER_CONTACT_URL:-}
+      PRICEWATCHER_MAX_RESPONSE_BYTES: ${PRICEWATCHER_MAX_RESPONSE_BYTES:-5242880}
+      WAHA_URL: ${WAHA_URL:-http://waha.docker}
+      WAHA_API_KEY: ${WAHA_API_KEY:-}
+      WAHA_SESSION: ${WAHA_SESSION:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+    volumes:
+      - ./config:/app/config
+      - ./data:/data
+    networks:
+      - traefik
+
+networks:
+  traefik:
+    external: true

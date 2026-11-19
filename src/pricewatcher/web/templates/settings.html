@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}Admin | PriceWatcher{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Admin</h1>
+    <p class="muted">Manage alert users, gateway health, and curated source packs.</p>
+  </div>
+</div>
+
+<section class="card-grid">
+  <article class="card stack-sm">
+    <div class="card-header">
+      <h2>WAHA Gateway</h2>
+      <span class="badge {% if waha_health.ok %}badge-active{% else %}badge-bad{% endif %}">
+        {{ waha_health.status }}
+      </span>
+    </div>
+    <dl class="stack-sm">
+      <div>
+        <dt class="muted">Endpoint</dt>
+        <dd><code>{{ waha_health.url }}</code></dd>
+      </div>
+      <div>
+        <dt class="muted">Dedicated Session</dt>
+        <dd><code>{{ waha_health.session }}</code></dd>
+      </div>
+      <div>
+        <dt class="muted">API Key Env</dt>
+        <dd><code>{{ settings.notifications.waha.api_key_env }}</code> ({{ "configured" if waha_key_set else "not set" }})</dd>
+      </div>
+      <div>
+        <dt class="muted">Detail</dt>
+        <dd>{{ waha_health.detail }}</dd>
+      </div>
+    </dl>
+  </article>
+
+  <article class="card stack-sm">
+    <div class="card-header">
+      <h2>SMTP Email Fallback</h2>
+      <span class="badge {% if settings.notifications.email.enabled %}badge-active{% else %}badge-neutral{% endif %}">
+        {{ "Enabled" if settings.notifications.email.enabled else "Disabled" }}
+      </span>
+    </div>
+    <dl class="stack-sm">
+      <div>
+        <dt class="muted">Server</dt>
+        <dd><code>{{ settings.notifications.email.smtp_host }}:{{ settings.notifications.email.smtp_port }}</code> (STARTTLS: {{ settings.notifications.email.use_tls }})</dd>
+      </div>
+      <div>
+        <dt class="muted">From Address</dt>
+        <dd><code>{{ settings.notifications.email.from_addr }}</code></dd>
+      </div>
+      <div>
+        <dt class="muted">Credentials Env</dt>
+        <dd><code>{{ settings.notifications.email.user_env }}</code> / <code>{{ settings.notifications.email.pass_env }}</code> ({{ "set" if smtp_creds_set else "not set" }})</dd>
+      </div>
+    </dl>
+  </article>
+</section>
+
+<section id="users-section" class="card stack-md">
+  <div class="page-head page-head-compact">
+    <div>
+      <h2>Users &amp; Test Alerts</h2>
+      <p class="muted mb-0">Alert recipients stored in <code>config/settings.yaml</code> and selectable per watch.</p>
+    </div>
+    <button type="button" id="new-recipient-btn" class="btn btn-primary btn-sm">+ Add User</button>
+  </div>
+
+  <div id="new-recipient-form-wrap" class="card stack-sm" hidden>
+    <h3>Add User</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="new-recipient-name">Name</label>
+        <input type="text" id="new-recipient-name" placeholder="e.g. Alex">
+      </div>
+      <div class="form-group">
+        <label for="new-recipient-key">User Key (slug)</label>
+        <input type="text" id="new-recipient-key" placeholder="e.g. alex">
+      </div>
+      <div class="form-group">
+        <label for="new-recipient-waha">WAHA Chat ID</label>
+        <input type="text" id="new-recipient-waha" placeholder="e.g. 15551234567@c.us">
+      </div>
+      <div class="form-group">
+        <label for="new-recipient-email">Email</label>
+        <input type="text" id="new-recipient-email" placeholder="e.g. alex@example.com">
+      </div>
+    </div>
+    <div class="actions-row">
+      <button type="button" id="create-recipient-confirm-btn" class="btn btn-primary btn-sm">Save User</button>
+      <button type="button" id="create-recipient-cancel-btn" class="btn btn-sm">Cancel</button>
+      <span id="new-recipient-status" class="muted" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div class="table-wrap" {% if not settings.notifications.recipients %}hidden{% endif %} id="recipients-table-wrap">
+    <table id="recipients-table">
+      <thead>
+        <tr>
+          <th scope="col">Key</th>
+          <th scope="col">Name</th>
+          <th scope="col">WAHA Chat ID</th>
+          <th scope="col">Email</th>
+          <th scope="col" data-no-sort>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="recipients-tbody">
+        {% for key, rec in settings.notifications.recipients.items() %}
+        <tr data-recipient-row data-recipient-key="{{ key }}">
+          <td><code>{{ key }}</code></td>
+          <td><input type="text" aria-label="Name for {{ key }}" data-rec-name value="{{ rec.name }}" required></td>
+          <td><input type="text" aria-label="WAHA Chat ID for {{ key }}" data-rec-waha value="{{ rec.waha_chat_id or '' }}" placeholder="15551234567@c.us"></td>
+          <td><input type="text" aria-label="Email for {{ key }}" data-rec-email value="{{ rec.email or '' }}" placeholder="name@example.com"></td>
+          <td>
+            <div class="actions-row actions-nowrap">
+              <button type="button" class="btn btn-primary btn-sm btn-icon" data-save-recipient aria-label="Save {{ key }}" title="Save user">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+              </button>
+              <button type="button" class="btn btn-sm btn-icon" data-test-recipient="{{ key }}" aria-label="Send test alert to {{ key }}" title="Send test alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+              <button type="button" class="btn btn-sm btn-icon btn-danger" data-delete-recipient aria-label="Delete {{ key }}" title="Delete user">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                  <path d="M10 11v6M14 11v6"></path>
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+              </button>
+              <span id="test-status-{{ key }}" class="muted" data-rec-status aria-live="polite"></span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p id="recipients-empty-msg" class="muted" {% if settings.notifications.recipients %}hidden{% endif %}>No users defined in <code>config/settings.yaml</code>.</p>
+</section>
+
+<section id="source-packs-section" class="card stack-md mt-md">
+  <div class="page-head mb-0">
+    <div>
+      <h2>Curated Category Source Packs &amp; Vendors</h2>
+      <p class="muted">
+        Add, edit, remove, and live-test vendor URL templates inside each category pack (stored in <code>config/settings.yaml</code>).
+        Supports <code>{query}</code>, <code>{query_encoded}</code>, <code>{make}</code>, and <code>{model}</code> placeholders.
+      </p>
+    </div>
+    <button type="button" id="new-pack-btn" class="btn btn-primary btn-sm">+ New Source Pack</button>
+  </div>
+
+  <div id="new-pack-form-wrap" class="card stack-sm" hidden>
+    <h3>Create New Source Pack</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="new-pack-id">Pack ID (slug)</label>
+        <input type="text" id="new-pack-id" placeholder="e.g. watches_luxury">
+      </div>
+      <div class="form-group">
+        <label for="new-pack-label">Display Label</label>
+        <input type="text" id="new-pack-label" placeholder="e.g. Watches &amp; Collectibles">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="new-pack-desc">Description</label>
+      <input type="text" id="new-pack-desc" placeholder="Curated vendors for this product category">
+    </div>
+    <div class="actions-row">
+      <button type="button" id="create-pack-confirm-btn" class="btn btn-primary btn-sm">Create Empty Pack</button>
+      <button type="button" id="create-pack-cancel-btn" class="btn btn-sm">Cancel</button>
+      <span id="new-pack-status" class="muted" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="source-packs-tabs" class="pack-tabs" role="tablist" aria-label="Source packs">
+    {% for pack_id, pack in settings.source_packs.items() %}
+    <button
+      type="button"
+      class="pack-tab"
+      role="tab"
+      id="pack-tab-{{ pack_id }}"
+      aria-controls="pack-panel-{{ pack_id }}"
+      aria-selected="{{ 'true' if loop.first else 'false' }}"
+      data-pack-tab="{{ pack_id }}"
+    >
+      <span>{{ pack.label }}</span>
+      <span class="pack-tab-count">{{ pack.sources | length }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <div id="source-packs-list" class="stack-md">
+    {% for pack_id, pack in settings.source_packs.items() %}
+    <article
+      class="card stack-sm"
+      role="tabpanel"
+      id="pack-panel-{{ pack_id }}"
+      aria-labelledby="pack-tab-{{ pack_id }}"
+      data-pack-card
+      data-pack-id="{{ pack_id }}"
+      {% if not loop.first %}hidden{% endif %}
+    >
+      <div class="card-header">
+        <div>
+          <h3>{{ pack.label }} <code>{{ pack_id }}</code></h3>
+          <p class="muted mb-0">{{ pack.description or "No description" }}</p>
+        </div>
+        <div class="actions-row actions-nowrap">
+          <button type="button" class="btn btn-sm btn-icon" data-add-pack-source aria-label="Add vendor to {{ pack.label }}" title="Add vendor to pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm btn-icon" data-save-pack aria-label="Save {{ pack.label }}" title="Save pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-icon" data-delete-pack aria-label="Delete {{ pack.label }}" title="Delete pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6M14 11v6"></path>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group mb-xs">
+          <label for="pack-label-{{ pack_id }}">Pack Label</label>
+          <input type="text" id="pack-label-{{ pack_id }}" data-pack-label value="{{ pack.label }}" required>
+        </div>
+        <div class="form-group mb-xs">
+          <label for="pack-desc-{{ pack_id }}">Description</label>
+          <input type="text" id="pack-desc-{{ pack_id }}" data-pack-description value="{{ pack.description }}">
+        </div>
+        <div class="form-group mb-xs">
+          <label for="pack-query-{{ pack_id }}">Sample Test Query</label>
+          <input
+            type="text"
+            id="pack-query-{{ pack_id }}"
+            data-pack-test-query
+            placeholder="Sample item to test pack, e.g. Toyota Tundra"
+            value="{% if 'automotive' in pack_id %}Toyota Tundra{% elif 'classic' in pack_id %}Volkswagen Kombi{% elif 'electronics' in pack_id %}iPhone 16 Pro{% elif 'home' in pack_id %}Herman Miller Aeron{% elif 'bikes' in pack_id %}Trek Bike{% else %}Mac Studio{% endif %}"
+          >
+        </div>
+      </div>
+
+      <div class="stack-sm" data-pack-sources>
+        {% for tmpl in pack.sources %}
+        <div class="pack-source-row" data-pack-source-row>
+          <div>
+            <label for="psrc-name-{{ pack_id }}-{{ loop.index0 }}">Vendor Name Template</label>
+            <input type="text" id="psrc-name-{{ pack_id }}-{{ loop.index0 }}" data-psrc-name value="{{ tmpl.name }}" required>
+          </div>
+          <div>
+            <label for="psrc-adapter-{{ pack_id }}-{{ loop.index0 }}">Adapter</label>
+            <select id="psrc-adapter-{{ pack_id }}-{{ loop.index0 }}" data-psrc-adapter>
+              {% for ad in ["rss", "json_api", "html_css", "appleinsider"] %}
+              <option value="{{ ad }}" {% if tmpl.adapter == ad %}selected{% endif %}>{{ ad }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="psrc-url-{{ pack_id }}-{{ loop.index0 }}">URL Template</label>
+            <input type="text" id="psrc-url-{{ pack_id }}-{{ loop.index0 }}" data-psrc-url value="{{ tmpl.url_template }}" required>
+          </div>
+          <div>
+            <label for="psrc-opts-{{ pack_id }}-{{ loop.index0 }}">Options JSON</label>
+            <input type="text" id="psrc-opts-{{ pack_id }}-{{ loop.index0 }}" data-psrc-options value='{{ tmpl.options | tojson }}'>
+          </div>
+          <div class="actions-row actions-nowrap">
+            <button type="button" class="btn btn-sm btn-icon" data-test-pack-source aria-label="Test {{ tmpl.name }}" title="Test source">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="6 4 20 12 6 20 6 4"></polygon>
+              </svg>
+            </button>
+            <button type="button" class="btn btn-sm btn-icon btn-danger" data-remove-pack-source aria-label="Remove {{ tmpl.name }}" title="Remove vendor">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6M14 11v6"></path>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="pack-source-test-result muted" data-psrc-test-output aria-live="polite"></div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <p class="muted mb-0" data-pack-status aria-live="polite"></p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

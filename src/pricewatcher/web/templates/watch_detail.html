@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}{{ watch.name }} | PriceWatcher{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ watch.name }}</h1>
+    <p class="muted">
+      <code>config/watches/{{ watch.id }}.yaml</code> &middot;
+      Status: <span class="badge badge-{{ status }}">{{ status | capitalize }}</span>
+      {% if days_remaining is not none %}
+        &middot; {{ days_remaining }} days remaining
+      {% endif %}
+    </p>
+  </div>
+  <div class="actions-row">
+    <button type="button" class="btn btn-primary btn-sm" data-run-watch="{{ watch.id }}">Run Check Now</button>
+    <a class="btn btn-sm" href="{{ ('/manage?edit=' ~ (watch.id | urlencode)) | safe_url }}">Edit Watch</a>
+  </div>
+</div>
+
+<section class="stack-md section-gap">
+  <h2>Best Qualifying Offers by Tier</h2>
+  {% if tiers %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Tier</th>
+          <th scope="col">Best Price</th>
+          <th scope="col">Merchant</th>
+          <th scope="col">Listing</th>
+          <th scope="col">Last Alerted</th>
+          <th scope="col">Last Seen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tiers %}
+        <tr>
+          <td><strong>{{ t.tier_key }}</strong></td>
+          <td class="num">
+            {% if t.best_price is not none %}${{ "{:,.2f}".format(t.best_price) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td>{{ t.best_merchant or "&mdash;" }}</td>
+          <td>
+            {% if t.best_url %}
+              <a href="{{ t.best_url | safe_url }}" target="_blank" rel="noopener noreferrer">{{ t.best_title or "Open listing" }}</a>
+            {% else %}
+              {{ t.best_title or "&mdash;" }}
+            {% endif %}
+          </td>
+          <td class="num">
+            {% if t.last_alerted_price is not none %}
+              ${{ "{:,.2f}".format(t.last_alerted_price) }}
+            {% else %}
+              &mdash;
+            {% endif %}
+          </td>
+          <td class="num">{{ (t.last_seen_at or "")[:19] | replace("T", " ") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No tier state recorded yet.</p>
+  {% endif %}
+</section>
+
+<section class="stack-md section-gap">
+  <h2>Observations &amp; Price History</h2>
+  <search>
+    <form action="/watches/{{ watch.id }}" method="GET" class="form-grid form-grid-end">
+      <div>
+        <label for="obs-q">Filter title / merchant / tier</label>
+        <input type="search" id="obs-q" name="q" value="{{ q }}" placeholder="e.g. Adorama, 64GB, 1TB">
+      </div>
+      <div class="actions-row">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a class="btn" href="{{ ('/watches/' ~ watch.id) | safe_url }}">Reset</a>
+      </div>
+    </form>
+  </search>
+
+  {% if observations %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Observed (UTC)</th>
+          <th scope="col">Tier</th>
+          <th scope="col">Price</th>
+          <th scope="col">Merchant</th>
+          <th scope="col">Title</th>
+          <th scope="col">Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obs in observations %}
+        <tr>
+          <td class="num">{{ obs.observed_at[:19] | replace("T", " ") }}</td>
+          <td>{{ obs.tier_key }}</td>
+          <td class="num"><strong>${{ "{:,.2f}".format(obs.price) }}</strong></td>
+          <td>{{ obs.merchant }}</td>
+          <td><a href="{{ obs.url | safe_url }}" target="_blank" rel="noopener noreferrer">{{ obs.title }}</a></td>
+          <td>{{ obs.source_name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No observations match the current filter.</p>
+  {% endif %}
+</section>
+
+<section class="stack-md section-gap">
+  <h2>Source Health</h2>
+  {% if source_health %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Source</th>
+          <th scope="col">HTTP</th>
+          <th scope="col">Fetched</th>
+          <th scope="col">Matched</th>
+          <th scope="col">Latency</th>
+          <th scope="col">Last Checked</th>
+          <th scope="col">Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sh in source_health %}
+        <tr>
+          <td>{{ sh.source_name }}</td>
+          <td class="num">{{ sh.http_status or "&mdash;" }}</td>
+          <td class="num">{{ sh.item_count }}</td>
+          <td class="num">{{ sh.matched_count }}</td>
+          <td class="num">{{ sh.latency_ms }} ms</td>
+          <td class="num">{{ sh.last_checked_at[:19] | replace("T", " ") }}</td>
+          <td>
+            {% if sh.last_error %}
+              <span class="badge badge-bad">{{ sh.last_error }}</span>
+            {% else %}
+              <span class="badge badge-active">OK</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Sources have not been polled yet.</p>
+  {% endif %}
+</section>
+
+<section class="stack-md">
+  <h2>Recent Alerts Log</h2>
+  {% if alerts %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Time (UTC)</th>
+          <th scope="col">Type</th>
+          <th scope="col">Tier</th>
+          <th scope="col">Recipient</th>
+          <th scope="col">Channel</th>
+          <th scope="col">Status</th>
+          <th scope="col">Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for al in alerts %}
+        <tr>
+          <td class="num">{{ al.created_at[:19] | replace("T", " ") }}</td>
+          <td>{{ al.alert_type }}</td>
+          <td>{{ al.tier_key }}</td>
+          <td>{{ al.recipient }}</td>
+          <td>{{ al.channel }}</td>
+          <td>
+            <span class="badge {% if al.status == 'sent' %}badge-active{% elif al.status == 'dry_run' %}badge-paused{% else %}badge-bad{% endif %}">
+              {{ al.status }}
+            </span>
+          </td>
+          <td>{{ al.error or (("$%.2f at %s" | format(al.price, al.merchant)) if al.price else "Summary sent") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No alerts triggered for this watch yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

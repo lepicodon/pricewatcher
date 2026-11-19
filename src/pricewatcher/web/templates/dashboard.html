@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Deals &amp; Results | PriceWatcher{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Deals &amp; Active Watches</h1>
+    <p class="muted">Best qualifying offers grouped by tier across all configured watches.</p>
+  </div>
+  <div class="actions-row">
+    <a class="btn btn-primary btn-sm" href="/manage?new=1">New Watch</a>
+  </div>
+</div>
+
+{% if not cards %}
+<section class="card stack-md">
+  <h2>No watches configured yet</h2>
+  <p>Create your first product watch in <a href="/manage?new=1">Manage</a> or drop a YAML file into <code>config/watches/</code>.</p>
+</section>
+{% else %}
+{% set active_count = cards | selectattr("status", "equalto", "active") | list | length %}
+{% set paused_count = cards | selectattr("status", "equalto", "paused") | list | length %}
+{% set ns = namespace(sources_total=0, hit_count=0) %}
+{% for c in cards %}
+  {% set ns.sources_total = ns.sources_total + (c.watch.sources | length) %}
+  {% for t in c.tiers %}
+    {% if (t.savings_vs_msrp is not none and t.savings_vs_msrp > 0) or (c.watch.rules.price.target is not none and t.best_price is not none and t.best_price <= c.watch.rules.price.target) %}
+      {% set ns.hit_count = ns.hit_count + 1 %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+
+<section class="summary-strip" aria-label="Watchlist overview">
+  <div class="summary-cell">
+    <div class="summary-label">Active Watches</div>
+    <div class="summary-value">{{ active_count }}</div>
+  </div>
+  <div class="summary-cell">
+    <div class="summary-label">Qualifying Deals</div>
+    <div class="summary-value {% if ns.hit_count > 0 %}is-good{% endif %}">{{ ns.hit_count }}</div>
+  </div>
+  <div class="summary-cell">
+    <div class="summary-label">Paused</div>
+    <div class="summary-value">{{ paused_count }}</div>
+  </div>
+  <div class="summary-cell">
+    <div class="summary-label">Configured Sources</div>
+    <div class="summary-value">{{ ns.sources_total }}</div>
+  </div>
+</section>
+
+<section class="card-grid" aria-label="Configured watches">
+  {% for card in cards %}
+  {% set card_ns = namespace(has_hit=false) %}
+  {% for t in card.tiers %}
+    {% if card.watch.rules.price.target is not none and t.best_price is not none and t.best_price <= card.watch.rules.price.target %}
+      {% set card_ns.has_hit = true %}
+    {% endif %}
+  {% endfor %}
+  <article class="card stack-md {% if card_ns.has_hit %}card-hit{% endif %}">
+    <div class="card-header">
+      <div>
+        <h2><a href="{{ ('/watches/' ~ card.watch.id) | safe_url }}">{{ card.watch.name }}</a></h2>
+        <p class="muted mb-0">
+          <code>{{ card.watch.id }}.yaml</code> &middot; Every {{ card.watch.schedule.interval_minutes }}m
+          {% if card.days_remaining is not none %}
+            &middot;
+            {% if card.status == "expired" %}
+              Expired
+            {% else %}
+              {{ card.days_remaining }}d left
+            {% endif %}
+          {% endif %}
+        </p>
+      </div>
+      <div class="actions-row">
+        {% if card_ns.has_hit %}
+          <span class="badge badge-hit">Target Hit</span>
+        {% endif %}
+        <span class="badge badge-{{ card.status }}">{{ card.status | capitalize }}</span>
+      </div>
+    </div>
+
+    {% if card.tiers %}
+    <ul class="tier-list">
+      {% for tier in card.tiers %}
+      <li class="tier-row">
+        <div>
+          <strong>{{ tier.tier_key }}</strong>
+          <div class="muted tier-meta">
+            {{ tier.best_merchant }}
+            {% if tier.best_promo_code %}
+              &middot; Code: <code>{{ tier.best_promo_code }}</code>
+            {% endif %}
+          </div>
+        </div>
+        <div class="tier-pricing">
+          <div class="tier-price num">
+            {% if tier.best_price is not none %}
+              ${{ "{:,.2f}".format(tier.best_price) }}
+            {% else %}
+              &mdash;
+            {% endif %}
+          </div>
+          {% if tier.savings_vs_msrp is not none and tier.savings_vs_msrp > 0 %}
+            <div class="tier-delta num">Save ${{ "{:,.2f}".format(tier.savings_vs_msrp) }} vs MSRP</div>
+          {% elif card.watch.rules.price.target is not none and tier.best_price is not none %}
+            <div class="muted num tier-target">Target: ${{ "{:,.2f}".format(card.watch.rules.price.target) }}</div>
+          {% endif %}
+          {% if tier.best_url %}
+            <a class="deal-link" href="{{ tier.best_url | safe_url }}" target="_blank" rel="noopener noreferrer">Open deal</a>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted mb-0">No qualifying observations recorded yet. Run a check to populate tiers.</p>
+    {% endif %}
+
+    <div class="card-footer">
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary btn-sm" data-run-watch="{{ card.watch.id }}">Run Check Now</button>
+        <a class="btn btn-sm" href="{{ ('/watches/' ~ card.watch.id) | safe_url }}">History &amp; Health</a>
+        <a class="btn btn-sm" href="{{ ('/manage?edit=' ~ (card.watch.id | urlencode)) | safe_url }}">Edit</a>
+      </div>
+      <details class="watch-details">
+        <summary>{{ card.watch.sources | length }} sources</summary>
+        <div class="watch-details-body">
+          {% if card.last_run_at %}
+            Last run: {{ card.last_run_at[:19] | replace("T", " ") }} UTC
+          {% else %}
+            Not polled yet
+          {% endif %}
+          {% if card.watch.rules.price.target is not none %}
+            &middot; Target ${{ "{:,.2f}".format(card.watch.rules.price.target) }}
+          {% endif %}
+        </div>
+      </details>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

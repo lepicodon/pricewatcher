@@ -1,0 +1,1118 @@
+{
+  "generated_at": "2026-11-15T13:22:59.612165+00:00",
+  "python_version": "3.14",
+  "group_summary": {
+    "AppleInsider": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://prices.appleinsider.com/",
+        "https://prices.appleinsider.com/mac-studio-m5-max",
+        "https://prices.appleinsider.com/mac-studio-m4-max",
+        "https://prices.appleinsider.com/mac-studio"
+      ]
+    },
+    "Slickdeals RSS": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio",
+        "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio+M5"
+      ]
+    },
+    "Reddit RSS": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://www.reddit.com/r/appledeals/new/.rss",
+        "https://www.reddit.com/r/macstudio/new/.rss",
+        "https://www.reddit.com/r/appledeals/search.rss?q=Mac+Studio&restrict_sr=on&sort=new"
+      ]
+    },
+    "Apple Refurbished": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://www.apple.com/shop/refurbished/mac/mac-studio"
+      ]
+    },
+    "Expercom": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://expercom.com/collections/mac-studio/products.json",
+        "https://expercom.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+        "https://expercom.com/collections/mac-studio"
+      ]
+    },
+    "DataVision": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://datavision.com/collections/mac-studio/products.json",
+        "https://datavision.com/products.json?limit=25",
+        "https://datavision.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+        "https://datavision.com/search?q=mac+studio"
+      ]
+    },
+    "Abt": {
+      "classification": "A_CLEAN_HTTP",
+      "endpoints": [
+        "https://www.abt.com/Apple-Mac-Studio-Desktop-Computers/c/4648.html",
+        "https://www.abt.com/resources/pages/search.php?keywords=mac+studio"
+      ]
+    },
+    "B&H": {
+      "classification": "C_BOT_BLOCKED",
+      "endpoints": [
+        "https://www.bhphotovideo.com/c/buy/mac-studio/ci/52157",
+        "https://www.bhphotovideo.com/c/search?Ntt=Mac%20Studio&N=0"
+      ]
+    },
+    "Adorama": {
+      "classification": "C_BOT_BLOCKED",
+      "endpoints": [
+        "https://www.adorama.com/l/Computers/Apple-Computers/Mac-Studio"
+      ]
+    },
+    "Micro Center": {
+      "classification": "C_BOT_BLOCKED",
+      "endpoints": [
+        "https://www.microcenter.com/search/search_results.aspx?Ntt=mac+studio"
+      ]
+    }
+  },
+  "endpoints": [
+    {
+      "source_group": "AppleInsider",
+      "label": "Hub",
+      "url": "https://prices.appleinsider.com/",
+      "fetch_method": "urllib",
+      "final_url": "https://prices.appleinsider.com/",
+      "status_code": 200,
+      "content_type": "text/html; charset=ISO-8859-1",
+      "body_size_bytes": 94080,
+      "classification": "B_NEEDS_PLAYWRIGHT",
+      "format_detected": "html_js_shell",
+      "page_title": "Apple Price Guides - Watches, Macs, Vison Pro & More | AppleInsider",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 10,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "passive telemetry noted: challenge-platform/scripts/jsd, challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/appleinsider_hub.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 94080,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "AppleInsider",
+      "label": "Guide mac-studio-m5-max",
+      "url": "https://prices.appleinsider.com/mac-studio-m5-max",
+      "fetch_method": "urllib",
+      "final_url": "https://prices.appleinsider.com/mac-studio-m5-max",
+      "status_code": 200,
+      "content_type": "text/html; charset=ISO-8859-1",
+      "body_size_bytes": 215363,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "html_jsonld",
+      "page_title": "Mac Studio M5 Max, M5 Ultra Best Sale Price Deals 2026",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 40,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 18,
+      "price_matches_count": 101,
+      "sample_items": [
+        "M5 Max, 18C CPU, 32C GPU, 36GB, 512GB [$2299.00]",
+        "M5 Max, 18C CPU, 32C GPU, 36GB, 1TB [$2659.00]",
+        "M5 Max, 18C CPU, 32C GPU, 36GB, 2TB [$3299.00]",
+        "M5 Max, 18C CPU, 32C GPU, 36GB, 4TB [$4299.00]"
+      ],
+      "sample_prices": [
+        "$2299.00",
+        "$2659.00",
+        "$3299.00",
+        "$4299.00"
+      ],
+      "notes": [
+        "passive telemetry noted: challenge-platform/scripts/jsd, challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/appleinsider_guide_mac_studio_m5_max.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 215363,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "AppleInsider",
+      "label": "Guide mac-studio-m4-max",
+      "url": "https://prices.appleinsider.com/mac-studio-m4-max",
+      "fetch_method": "urllib",
+      "final_url": "https://prices.appleinsider.com/mac-studio-m4-max",
+      "status_code": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body_size_bytes": 0,
+      "classification": "NOT_FOUND_404",
+      "format_detected": "http_404",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 404: Not Found"
+      ],
+      "fixture_file": null,
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 404,
+          "bytes": 0,
+          "error": "HTTP 404: Not Found"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5753,
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "source_group": "AppleInsider",
+      "label": "Guide mac-studio",
+      "url": "https://prices.appleinsider.com/mac-studio",
+      "fetch_method": "urllib",
+      "final_url": "https://prices.appleinsider.com/mac-studio",
+      "status_code": 404,
+      "content_type": "text/html; charset=UTF-8",
+      "body_size_bytes": 0,
+      "classification": "NOT_FOUND_404",
+      "format_detected": "http_404",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 404: Not Found"
+      ],
+      "fixture_file": null,
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 404,
+          "bytes": 0,
+          "error": "HTTP 404: Not Found"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5732,
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "source_group": "Slickdeals RSS",
+      "label": "Search Mac Studio",
+      "url": "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio",
+      "fetch_method": "urllib",
+      "final_url": "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio",
+      "status_code": 200,
+      "content_type": "text/xml; charset=UTF-8",
+      "body_size_bytes": 63122,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "rss_atom_xml",
+      "page_title": "Slickdeals Frontpage RSS Feed",
+      "bot_markers_found": [],
+      "rss_item_count": 25,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 21,
+      "price_matches_count": 21,
+      "sample_items": [
+        "Apple Mac Studio Desktop (2026): M5 Max, 36GB RAM, 512GB SSD $2000 & More + Free Pickup (https://slickdeals.net/f/20261877-apple-mac-studio-desktop-2026-m5-max-36gb-ram-512gb-ssd-1999-99?utm_source=rss&utm_content=fp&utm_medium=RSS2)",
+        "Fleetwood Mac: Rumours Live (2 CD's w/ MP3 Auto Rip) $12.55 (https://slickdeals.net/f/20254905-fleetwood-mac-rumours-live-2-cd-12-54?utm_source=rss&utm_content=fp&utm_medium=RSS2)",
+        "Apple Mac Studio Desktop (2026): M5 Max, 36GB RAM, 512GB SSD $2000 + Free Pickup (https://slickdeals.net/f/20196219-apple-mac-studio-m5-max-micro-center-1999?utm_source=rss&utm_content=fp&utm_medium=RSS2)"
+      ],
+      "sample_prices": [
+        "$2000",
+        "$1999.99",
+        "$2199.99",
+        "$1065",
+        "$1064.91",
+        "$1700"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/slickdeals_rss_search_mac_studio.xml",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 63122,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Slickdeals RSS",
+      "label": "Search Mac Studio M5",
+      "url": "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio+M5",
+      "fetch_method": "urllib",
+      "final_url": "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio+M5",
+      "status_code": 200,
+      "content_type": "text/xml; charset=UTF-8",
+      "body_size_bytes": 10590,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "rss_atom_xml",
+      "page_title": "Slickdeals Frontpage RSS Feed",
+      "bot_markers_found": [],
+      "rss_item_count": 4,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 13,
+      "price_matches_count": 13,
+      "sample_items": [
+        "Apple Mac Studio Desktop (2026): M5 Max, 36GB RAM, 512GB SSD $2000 & More + Free Pickup (https://slickdeals.net/f/20261877-apple-mac-studio-desktop-2026-m5-max-36gb-ram-512gb-ssd-1999-99?utm_source=rss&utm_content=fp&utm_medium=RSS2)",
+        "Apple Mac Studio Desktop (2026): M5 Max, 36GB RAM, 512GB SSD $2000 + Free Pickup (https://slickdeals.net/f/20196219-apple-mac-studio-m5-max-micro-center-1999?utm_source=rss&utm_content=fp&utm_medium=RSS2)",
+        "Prime Members: 10' TALIX USB-C 240W PD3.2 EPR 5A Fast Charging Cable $9.50 + Free S&H (https://slickdeals.net/f/20086629-prime-10-talix-240w-usb-c-to-usb-c-pd3-2-epr-fast-charging-cable-white-9-49-free-shipping?utm_source=rss&utm_content=fp&utm_medium=RSS2)"
+      ],
+      "sample_prices": [
+        "$2000",
+        "$1999.99",
+        "$2199.99"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/slickdeals_rss_search_mac_studio_m5.xml",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 10590,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Reddit RSS",
+      "label": "r/appledeals new",
+      "url": "https://www.reddit.com/r/appledeals/new/.rss",
+      "fetch_method": "urllib",
+      "final_url": "https://www.reddit.com/r/appledeals/new/.rss",
+      "status_code": 200,
+      "content_type": "application/atom+xml; charset=UTF-8",
+      "body_size_bytes": 39801,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "rss_atom_xml",
+      "page_title": "newest submissions : Appledeals",
+      "bot_markers_found": [],
+      "rss_item_count": 25,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [
+        "Apple iPhone 11 256GB [\u20ac823.49] (https://www.reddit.com/r/Appledeals/comments/fw7do9/apple_iphone_11_256gb_82349/)",
+        "airpods 2 (https://www.reddit.com/r/Appledeals/comments/fstfzd/airpods_2/)",
+        "Apple iPhone XR 128GB [\u20ac623] (https://www.reddit.com/r/Appledeals/comments/ffj6ag/apple_iphone_xr_128gb_623/)"
+      ],
+      "sample_prices": [],
+      "notes": [],
+      "fixture_file": "tests/fixtures/reddit_rss_r_appledeals_new.xml",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "custom_pricewatcher_ua",
+          "status": 200,
+          "bytes": 39801,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Reddit RSS",
+      "label": "r/macstudio new",
+      "url": "https://www.reddit.com/r/macstudio/new/.rss",
+      "fetch_method": "curl",
+      "final_url": "https://www.reddit.com/r/macstudio/new/.rss",
+      "status_code": 429,
+      "content_type": "",
+      "body_size_bytes": 0,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 429"
+      ],
+      "fixture_file": null,
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "custom_pricewatcher_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429: Too Many Requests"
+        },
+        {
+          "method": "curl",
+          "ua": "custom_pricewatcher_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429"
+        }
+      ]
+    },
+    {
+      "source_group": "Reddit RSS",
+      "label": "r/appledeals search",
+      "url": "https://www.reddit.com/r/appledeals/search.rss?q=Mac+Studio&restrict_sr=on&sort=new",
+      "fetch_method": "curl",
+      "final_url": "https://www.reddit.com/r/appledeals/search.rss?q=Mac+Studio&restrict_sr=on&sort=new",
+      "status_code": 429,
+      "content_type": "",
+      "body_size_bytes": 0,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 429"
+      ],
+      "fixture_file": null,
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "custom_pricewatcher_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429: Too Many Requests"
+        },
+        {
+          "method": "curl",
+          "ua": "custom_pricewatcher_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 429,
+          "bytes": 0,
+          "error": "HTTP 429"
+        }
+      ]
+    },
+    {
+      "source_group": "Apple Refurbished",
+      "label": "Mac Studio Refurb",
+      "url": "https://www.apple.com/shop/refurbished/mac/mac-studio",
+      "fetch_method": "urllib",
+      "final_url": "https://www.apple.com/shop/refurbished/mac/mac-studio",
+      "status_code": 200,
+      "content_type": "text/html;charset=utf-8",
+      "body_size_bytes": 667587,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "html_refurb_bootstrap_json",
+      "page_title": "Refurbished Mac - Mac Studio - Apple",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 139,
+      "next_data_present": false,
+      "mac_studio_mentions": 12,
+      "price_matches_count": 370,
+      "sample_items": [
+        "Refurbished MacBook Neo Apple A18 Pro chip with Touch ID - Silver [$679.00]",
+        "Refurbished MacBook Neo Apple A18 Pro chip with Touch ID - Blush [$679.00]",
+        "Refurbished 13-inch MacBook Air Apple M5 chip with 10\u2011Core CPU and 8\u2011Core GPU - Sky Blue [<span class=\"visuallyhidden\">Now\u00a0</span>$1,099.00]",
+        "Refurbished 13-inch MacBook Air Apple M5 chip with 10\u2011Core CPU and 10\u2011Core GPU - Sky Blue [$1,179.00]",
+        "Refurbished 24-inch iMac Apple M4 Chip with 8-Core CPU and 8-Core GPU - Silver [<span class=\"visuallyhidden\">Now\u00a0</span>$1,189.00]"
+      ],
+      "sample_prices": [
+        "$679.00",
+        "$679.00",
+        "<span class=\"visuallyhidden\">Now\u00a0</span>$1,099.00",
+        "$1,179.00",
+        "<span class=\"visuallyhidden\">Now\u00a0</span>$1,189.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/apple_refurbished_mac_studio_refurb.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 667587,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Expercom",
+      "label": "Collection products.json",
+      "url": "https://expercom.com/collections/mac-studio/products.json",
+      "fetch_method": "urllib",
+      "final_url": "https://expercom.com/collections/mac-studio/products.json",
+      "status_code": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_size_bytes": 172508,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "shopify_products_json",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 30,
+      "json_variant_count": 30,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 172,
+      "price_matches_count": 0,
+      "sample_items": [
+        "Mac Studio - M5 Max 18-core CPU 32-core GPU - 36GB Memory - 512GB Storage [$2374.00]",
+        "Mac Studio - M5 Max 18-core CPU 32-core GPU - 36GB Memory - 1TB Storage [$2659.00]",
+        "Mac Studio - M5 Max 18-core CPU 40-core GPU - 48GB Memory - 512GB Storage [$2944.00]",
+        "Mac Studio - M5 Max 18-core CPU 32-core GPU - 36GB Memory - 2TB Storage [$3134.00]"
+      ],
+      "sample_prices": [
+        "$2374.00",
+        "$2659.00",
+        "$2944.00",
+        "$3134.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/expercom_collection_products_json.json",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 172508,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Expercom",
+      "label": "Search suggest.json",
+      "url": "https://expercom.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+      "fetch_method": "urllib",
+      "final_url": "https://expercom.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+      "status_code": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_size_bytes": 33707,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "shopify_suggest_json",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 10,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 29,
+      "price_matches_count": 0,
+      "sample_items": [
+        "Mac Studio - M5 Max 18-core CPU 40-core GPU - 128GB Memory - 1TB Storage [$5399.00]",
+        "Mac Studio - M5 Max 18-core CPU 32-core GPU - 36GB Memory - 1TB Storage [$2659.00]",
+        "Mac Studio - M3 Ultra 28-core CPU 60-core GPU - 96GB Memory - 1TB Storage [$5049.00]",
+        "Mac Studio - M5 Max 18-core CPU 32-core GPU - 36GB Memory - 512GB Storage [$2374.00]"
+      ],
+      "sample_prices": [
+        "$5399.00",
+        "$2659.00",
+        "$5049.00",
+        "$2374.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/expercom_search_suggest_json.json",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 33707,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Expercom",
+      "label": "Collection HTML",
+      "url": "https://expercom.com/collections/mac-studio",
+      "fetch_method": "urllib",
+      "final_url": "https://expercom.com/collections/mac-studio",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body_size_bytes": 603475,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "html_server_rendered",
+      "page_title": "Mac Studio \u2013 Expercom",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 264,
+      "price_matches_count": 90,
+      "sample_items": [],
+      "sample_prices": [
+        "$2,374.00",
+        "$2,499.00",
+        "$2,659.00",
+        "$2,799.00",
+        "$2,944.00",
+        "$3,099.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/expercom_collection_html.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 603475,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "DataVision",
+      "label": "Collection products.json",
+      "url": "https://datavision.com/collections/mac-studio/products.json",
+      "fetch_method": "curl",
+      "final_url": "https://datavision.com/collections/mac-studio/products.json",
+      "status_code": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_size_bytes": 15,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "shopify_products_json",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [],
+      "fixture_file": "tests/fixtures/datavision_collection_products_json.json",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 15,
+          "error": null
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 15,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "DataVision",
+      "label": "Root products.json",
+      "url": "https://datavision.com/products.json?limit=25",
+      "fetch_method": "urllib",
+      "final_url": "https://datavision.com/products.json?limit=25",
+      "status_code": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_size_bytes": 136501,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "shopify_products_json",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 25,
+      "json_variant_count": 25,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 115,
+      "price_matches_count": 0,
+      "sample_items": [
+        "HP Smart Tank 7603 All-in-One Inkjet Printer Light - 9B5D1A#B1H [$469.99]",
+        "Sony ECM-AX10 Spatial Audio Microphone for Smartphone Recording [$248.00]",
+        "(CTO) Apple Mac Studio: M5 Max 18C CPU - 32C GPU, 36GB, 1TB - Z1U4000E5 [$2799.00]",
+        "(CTO) Apple Mac Studio: M5 Max 18C CPU - 32C GPU, 36GB, 2TB - Z1U4000E7 [$3299.00]"
+      ],
+      "sample_prices": [
+        "$469.99",
+        "$248.00",
+        "$2799.00",
+        "$3299.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/datavision_root_products_json.json",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 136501,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "DataVision",
+      "label": "Search suggest.json",
+      "url": "https://datavision.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+      "fetch_method": "urllib",
+      "final_url": "https://datavision.com/search/suggest.json?q=Mac%20Studio&resources[type]=product",
+      "status_code": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_size_bytes": 37760,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "shopify_suggest_json",
+      "page_title": null,
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 10,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 20,
+      "price_matches_count": 0,
+      "sample_items": [
+        "Apple Mac Studio: M3 Ultra with 28-core CPU and 60-core GPU, 96GB, 1TB SSD - MU973LL/A (2025) [$5199.00]",
+        "(CTO) Apple Mac Studio: M5 Max 18C CPU - 32C GPU, 36GB, 1TB - Z1U4000E5 [$2799.00]",
+        "AppleCare+ for Mac Studio (M4) [$181.00]",
+        "Apple Studio Display - Standard glass - Tilt- and height-adjustable stand - MFEW4LL/A - (2026) [$1949.00]"
+      ],
+      "sample_prices": [
+        "$5199.00",
+        "$2799.00",
+        "$181.00",
+        "$1949.00"
+      ],
+      "notes": [],
+      "fixture_file": "tests/fixtures/datavision_search_suggest_json.json",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 37760,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "DataVision",
+      "label": "Search HTML",
+      "url": "https://datavision.com/search?q=mac+studio",
+      "fetch_method": "urllib",
+      "final_url": "https://datavision.com/search?q=mac+studio",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body_size_bytes": 2365728,
+      "classification": "B_NEEDS_PLAYWRIGHT",
+      "format_detected": "html_js_shell",
+      "page_title": "Search: 122 results found for \"mac studio\" \u2013 DataVision",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 58,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [],
+      "fixture_file": "tests/fixtures/datavision_search_html.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 2365728,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "Abt",
+      "label": "Mac Studio Category",
+      "url": "https://www.abt.com/Apple-Mac-Studio-Desktop-Computers/c/4648.html",
+      "fetch_method": "urllib",
+      "final_url": "https://www.abt.com/Apple-Mac-Studio-Desktop-Computers/c/4648.html",
+      "status_code": 404,
+      "content_type": "text/html; charset=utf-8",
+      "body_size_bytes": 650266,
+      "classification": "NOT_FOUND_404",
+      "format_detected": "http_404",
+      "page_title": "Abt.com Page Not Found",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 3,
+      "sample_items": [],
+      "sample_prices": [
+        "$1999",
+        "$1000"
+      ],
+      "notes": [
+        "HTTP 404: Not Found",
+        "passive telemetry noted: challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/abt_mac_studio_category.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 404,
+          "bytes": 650266,
+          "error": "HTTP 404: Not Found"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 404,
+          "bytes": 650525,
+          "error": "HTTP 404"
+        }
+      ]
+    },
+    {
+      "source_group": "Abt",
+      "label": "Search Mac Studio",
+      "url": "https://www.abt.com/resources/pages/search.php?keywords=mac+studio",
+      "fetch_method": "urllib",
+      "final_url": "https://www.abt.com/resources/pages/search.php?keywords=mac+studio",
+      "status_code": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body_size_bytes": 876280,
+      "classification": "A_CLEAN_HTTP",
+      "format_detected": "html_server_rendered",
+      "page_title": "Abt.com Search",
+      "bot_markers_found": [],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 56,
+      "price_matches_count": 40,
+      "sample_items": [],
+      "sample_prices": [
+        "$1999",
+        "$1000",
+        "$2000",
+        "$2500",
+        "$3000",
+        "$4000"
+      ],
+      "notes": [
+        "passive telemetry noted: challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/abt_search_mac_studio.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 200,
+          "bytes": 876280,
+          "error": null
+        }
+      ]
+    },
+    {
+      "source_group": "B&H",
+      "label": "Category Mac Studio",
+      "url": "https://www.bhphotovideo.com/c/buy/mac-studio/ci/52157",
+      "fetch_method": "urllib",
+      "final_url": "https://www.bhphotovideo.com/c/buy/mac-studio/ci/52157",
+      "status_code": 403,
+      "content_type": "text/html; charset=UTF-8",
+      "body_size_bytes": 5816,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": "Just a moment...",
+      "bot_markers_found": [
+        "header:cf-mitigated=challenge",
+        "just a moment...",
+        "_cf_chl_opt",
+        "enable javascript and cookies to continue"
+      ],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 403: Forbidden",
+        "passive telemetry noted: challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/b_h_category_mac_studio.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5816,
+          "error": "HTTP 403: Forbidden"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5795,
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "source_group": "B&H",
+      "label": "Search Mac Studio",
+      "url": "https://www.bhphotovideo.com/c/search?Ntt=Mac%20Studio&N=0",
+      "fetch_method": "urllib",
+      "final_url": "https://www.bhphotovideo.com/c/search?Ntt=Mac%20Studio&N=0",
+      "status_code": 403,
+      "content_type": "text/html; charset=UTF-8",
+      "body_size_bytes": 5858,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": "Just a moment...",
+      "bot_markers_found": [
+        "header:cf-mitigated=challenge",
+        "just a moment...",
+        "_cf_chl_opt",
+        "enable javascript and cookies to continue"
+      ],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 403: Forbidden",
+        "passive telemetry noted: challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/b_h_search_mac_studio.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5858,
+          "error": "HTTP 403: Forbidden"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5837,
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "source_group": "Adorama",
+      "label": "Category Mac Studio",
+      "url": "https://www.adorama.com/l/Computers/Apple-Computers/Mac-Studio",
+      "fetch_method": "urllib",
+      "final_url": "https://www.adorama.com/l/Computers/Apple-Computers/Mac-Studio",
+      "status_code": 403,
+      "content_type": "application/json;charset=utf-8",
+      "body_size_bytes": 470,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": null,
+      "bot_markers_found": [
+        "header:x-datadome",
+        "captcha-delivery.com"
+      ],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 403: Forbidden"
+      ],
+      "fixture_file": "tests/fixtures/adorama_category_mac_studio.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 470,
+          "error": "HTTP 403: Forbidden"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 471,
+          "error": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "source_group": "Micro Center",
+      "label": "Search Mac Studio",
+      "url": "https://www.microcenter.com/search/search_results.aspx?Ntt=mac+studio",
+      "fetch_method": "urllib",
+      "final_url": "https://www.microcenter.com/search/search_results.aspx?Ntt=mac+studio",
+      "status_code": 403,
+      "content_type": "text/html; charset=UTF-8",
+      "body_size_bytes": 5899,
+      "classification": "C_BOT_BLOCKED",
+      "format_detected": "blocked_challenge",
+      "page_title": "Just a moment...",
+      "bot_markers_found": [
+        "header:cf-mitigated=challenge",
+        "just a moment...",
+        "_cf_chl_opt",
+        "enable javascript and cookies to continue"
+      ],
+      "rss_item_count": 0,
+      "json_product_count": 0,
+      "json_variant_count": 0,
+      "jsonld_product_count": 0,
+      "refurb_tile_count": 0,
+      "next_data_present": false,
+      "mac_studio_mentions": 0,
+      "price_matches_count": 0,
+      "sample_items": [],
+      "sample_prices": [],
+      "notes": [
+        "HTTP 403: Forbidden",
+        "passive telemetry noted: challenge-platform"
+      ],
+      "fixture_file": "tests/fixtures/micro_center_search_mac_studio.html",
+      "fallback_attempts": [
+        {
+          "method": "urllib",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5899,
+          "error": "HTTP 403: Forbidden"
+        },
+        {
+          "method": "curl",
+          "ua": "browser_ua",
+          "status": 403,
+          "bytes": 5900,
+          "error": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

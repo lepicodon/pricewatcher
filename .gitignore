@@ -1,0 +1,45 @@
+# Python & virtual environments
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Secrets & local environment
+.env
+.env.*
+!.env.example
+
+# Local user configuration & watches (ship example files only)
+config/settings.yaml
+config/watches/*.yaml
+config/watches/*.yml
+!config/settings.example.yaml
+!config/watches/*.example
+
+# Runtime data & SQLite databases
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Local tooling, internal notes & OS files
+.impeccable/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.bak
+AUDIT_FIX.md
+audit_report.md
+PRODUCT.md
+DESIGN.md
+FUTURE.md

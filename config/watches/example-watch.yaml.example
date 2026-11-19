@@ -1,0 +1,126 @@
+# Example watch definition.
+# Copy to config/watches/<your-watch-id>.yaml and adjust rules, thresholds, and recipients.
+
+id: example-watch
+name: "Mac Studio M5 Max (Example)"
+enabled: true
+query: "Mac Studio M5 Max"
+
+schedule:
+  interval_minutes: 30
+  jitter_seconds: 180
+  start_at: "2026-11-15T00:00:00-05:00"
+  duration_days: 14
+
+rules:
+  include_keyword_groups:
+    - ["Mac Studio"]
+    - ["M5 Max", "M5 Ultra"]
+  exclude_keywords:
+    - "MacBook"
+    - "Mac mini"
+    - "Studio Display"
+    - "AppleCare"
+    - "Mount"
+    - "Stand"
+    - "Dock"
+    - "Case"
+    - "Cable"
+    - "36GB"
+    - "48GB"
+
+  extractors:
+    ram_gb:
+      pattern: '(\d{2,3})\s*GB(?:\s+Unified)?(?:\s+(?:Memory|RAM))?(?!\s*(?:SSD|Storage))'
+      type: int
+      min: 64
+      required: true
+    ssd_gb:
+      pattern: '(?:(\d+)\s*TB|(512|1000|1024|2000|2048|4096|8192)\s*GB)(?:\s*(?:SSD|Storage))?'
+      type: storage_gb
+      min: 512
+      required: true
+
+  conditions_allowed:
+    - "new"
+    - "refurbished"
+    - "open-box"
+  require_in_stock: true
+
+  price:
+    min: 1500
+    max: 3999.99
+    target: 3450
+    msrp: 3699
+    min_drop_delta: 20
+    cooldown_hours: 24
+
+  tier_by:
+    - "ram_gb"
+    - "ssd_gb"
+    - "condition"
+
+alerts:
+  recipients:
+    - "primary"
+  delivery: "waha_with_email_fallback"
+  send_startup_summary: true
+
+sources:
+  - name: "AppleInsider M5 Max Guide"
+    adapter: appleinsider
+    url: "https://prices.appleinsider.com/mac-studio-m5-max"
+    enabled: true
+
+  - name: "Expercom Mac Studio"
+    adapter: json_api
+    url: "https://expercom.com/collections/mac-studio/products.json"
+    enabled: true
+
+  - name: "DataVision Search Suggest"
+    adapter: json_api
+    url: "https://datavision.com/search/suggest.json?q=Mac%20Studio&resources[type]=product"
+    enabled: true
+
+  - name: "DataVision Products Feed"
+    adapter: json_api
+    url: "https://datavision.com/products.json?limit=50"
+    enabled: true
+
+  - name: "Abt Mac Studio Search"
+    adapter: html_css
+    url: "https://www.abt.com/resources/pages/search.php?keywords=mac+studio"
+    enabled: true
+    options:
+      preset: "abt_search"
+
+  - name: "Apple Certified Refurbished"
+    adapter: json_api
+    url: "https://www.apple.com/shop/refurbished/mac/mac-studio"
+    enabled: true
+    options:
+      mode: "apple_refurb"
+
+  - name: "Slickdeals Mac Studio"
+    adapter: rss
+    url: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio"
+    enabled: true
+
+  - name: "Slickdeals Mac Studio M5"
+    adapter: rss
+    url: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio+M5"
+    enabled: true
+
+  - name: "Reddit r/appledeals"
+    adapter: rss
+    url: "https://www.reddit.com/r/appledeals/new/.rss"
+    enabled: true
+    options:
+      politeness_delay_seconds: 2.0
+
+  - name: "Reddit r/macstudio"
+    adapter: rss
+    url: "https://www.reddit.com/r/macstudio/new/.rss"
+    enabled: true
+    options:
+      politeness_delay_seconds: 2.5

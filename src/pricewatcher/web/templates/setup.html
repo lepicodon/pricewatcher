@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Authentication Setup Required | PriceWatcher{% endblock %}
+
+{% block content %}
+<section class="auth-shell">
+  <div class="card auth-card auth-card-wide stack-md">
+    <div>
+      <h1>Authentication Setup Required</h1>
+      <p class="muted mb-0">
+        PriceWatcher is locked (<code>503 Service Unavailable</code>) because no administrator password hash is configured.
+      </p>
+    </div>
+
+    <div class="stack-sm">
+      <p>Generate a scrypt password hash using the CLI:</p>
+      <pre class="code-block"><code>pricewatcher hash-password</code></pre>
+      <p>Then configure the environment and restart the server:</p>
+      <pre class="code-block"><code>PRICEWATCHER_ADMIN_PASSWORD_HASH="scrypt$16384$8$1$..."
+PRICEWATCHER_SESSION_SECRET="replace-with-random-32-byte-secret"</code></pre>
+      <p class="muted mb-0">
+        For isolated local testing without login, set <code>PRICEWATCHER_INSECURE_NO_AUTH=1</code> explicitly.
+      </p>
+    </div>
+  </div>
+</section>
+{% endblock %}
