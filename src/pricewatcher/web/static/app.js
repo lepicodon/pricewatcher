@@ -968,7 +968,7 @@
     const nameWrap = document.createElement("div");
     const nameLbl = document.createElement("label");
     nameLbl.htmlFor = `psrc-name-${suffix}`;
-    nameLbl.textContent = "Vendor Name Template";
+    nameLbl.textContent = "Source Name Template";
     const nameInp = document.createElement("input");
     nameInp.type = "text";
     nameInp.id = `psrc-name-${suffix}`;
@@ -1576,10 +1576,12 @@
         const addedPacks = Array.isArray(data.packs_added) ? data.packs_added.length : 0;
         const addedSources = Number(data.sources_added || 0);
         if (addedPacks === 0 && addedSources === 0) {
-          if (syncPacksStatus) syncPacksStatus.textContent = "Already up to date with all built-in packs.";
+          if (syncPacksStatus) {
+            syncPacksStatus.textContent = "Your packs already include all built-in packs and sources.";
+          }
         } else {
           if (syncPacksStatus) {
-            syncPacksStatus.textContent = `Synced ${addedPacks} new pack(s) and ${addedSources} new source(s). Reloading...`;
+            syncPacksStatus.textContent = `Added ${addedPacks} built-in pack(s) and ${addedSources} new source(s) without overwriting your edits. Reloading...`;
           }
           window.setTimeout(() => window.location.reload(), 600);
         }
@@ -1595,11 +1597,20 @@
   const packProbeUrlInput = document.getElementById("pack-probe-url");
   const packProbeResult = document.getElementById("pack-probe-result");
   if (packProbeBtn && packProbeUrlInput && packProbeResult) {
+    packProbeUrlInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        packProbeBtn.click();
+      }
+    });
+
     packProbeBtn.addEventListener("click", async () => {
+      if (packProbeBtn.disabled) return;
       const rawUrl = packProbeUrlInput.value.trim();
-      if (!rawUrl) {
+      if (!rawUrl || (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://"))) {
         packProbeResult.hidden = false;
-        packProbeResult.textContent = "Enter a URL starting with http:// or https://.";
+        packProbeResult.textContent = "Enter a full URL starting with http:// or https://.";
+        packProbeUrlInput.focus();
         return;
       }
       const probeUrl = rawUrl
@@ -1610,13 +1621,16 @@
 
       packProbeBtn.disabled = true;
       packProbeResult.hidden = false;
-      packProbeResult.textContent = "Probing URL...";
+      packProbeResult.textContent = "Probing URL (this may take a few seconds)...";
 
       try {
         const res = await csrfFetch("/api/sources/probe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: probeUrl }),
+          signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout
+            ? AbortSignal.timeout(35000)
+            : undefined,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -1629,17 +1643,24 @@
         summaryRow.className = "actions-row";
 
         const clsBadge = document.createElement("span");
-        clsBadge.className = data.classification === "A_CLEAN_HTTP"
-          ? "badge badge-success"
-          : data.classification === "B_NEEDS_PLAYWRIGHT"
-            ? "badge badge-warn"
-            : "badge badge-danger";
-        clsBadge.textContent = data.classification || "UNKNOWN";
+        const clsCode = data.classification || "UNKNOWN";
+        clsBadge.className = clsCode === "A_CLEAN_HTTP"
+          ? "badge badge-hit"
+          : clsCode === "B_NEEDS_PLAYWRIGHT"
+            ? "badge badge-paused"
+            : "badge badge-bad";
+        clsBadge.textContent = clsCode === "A_CLEAN_HTTP"
+          ? "Ready (HTTP)"
+          : clsCode === "B_NEEDS_PLAYWRIGHT"
+            ? "Needs Playwright JS"
+            : clsCode === "C_BOT_BLOCKED"
+              ? "Bot-Blocked"
+              : clsCode;
 
         const infoText = document.createElement("span");
         const adapterLabel = data.recommended_adapter || "none";
         const countLabel = Number(data.item_count || 0);
-        infoText.textContent = `Adapter: ${adapterLabel} · Format: ${data.format_detected || "unknown"} · Items: ${countLabel}`;
+        infoText.textContent = `Adapter: ${adapterLabel} · Found ${countLabel} item(s)`;
 
         summaryRow.append(clsBadge, infoText);
 
@@ -1651,10 +1672,29 @@
           addBtn.addEventListener("click", () => {
             if (!sourcePacksList) return;
             const activeCard = sourcePacksList.querySelector("[data-pack-card]:not([hidden])");
-            if (!activeCard) return;
+            if (!activeCard) {
+              const emptyMsg = document.createElement("p");
+              emptyMsg.className = "muted mb-0";
+              emptyMsg.textContent = "Create or sync a pack first before adding a probed source.";
+              packProbeResult.appendChild(emptyMsg);
+              return;
+            }
             const packId = activeCard.getAttribute("data-pack-id") || "";
+            const packLabelEl = activeCard.querySelector("[data-pack-label]");
+            const packLabel = packLabelEl ? packLabelEl.value.trim() || packId : packId;
             const sourcesWrap = activeCard.querySelector("[data-pack-sources]");
             if (!sourcesWrap) return;
+
+            const existingUrls = Array.from(sourcesWrap.querySelectorAll("[data-psrc-url]"))
+              .map((el) => el.value.trim().toLowerCase());
+            const statusEl = activeCard.querySelector("[data-pack-status]");
+            if (existingUrls.includes(rawUrl.toLowerCase())) {
+              if (statusEl) {
+                statusEl.textContent = `This URL template is already in "${packLabel}".`;
+              }
+              return;
+            }
+
             const row = buildPackSourceRow(packId, {
               name: data.recommended_name || "New Source",
               adapter: data.recommended_adapter,
@@ -1662,15 +1702,25 @@
               options: data.recommended_options || {},
             });
             sourcesWrap.appendChild(row);
-            const statusEl = activeCard.querySelector("[data-pack-status]");
             if (statusEl) {
-              statusEl.textContent = "Added probed source to pack. Click Save (disk icon) to persist.";
+              statusEl.textContent = `Added to "${packLabel}". Click Save (disk icon) on this pack to keep it.`;
             }
           });
           summaryRow.appendChild(addBtn);
         }
 
         packProbeResult.appendChild(summaryRow);
+        if (Array.isArray(data.sample_items) && data.sample_items.length > 0) {
+          const sampleList = document.createElement("ul");
+          sampleList.className = "muted mb-0";
+          for (const item of data.sample_items.slice(0, 3)) {
+            const li = document.createElement("li");
+            const priceStr = item.price != null ? ` — $${Number(item.price).toLocaleString()}` : "";
+            li.textContent = `${item.title || "Untitled"}${priceStr}`;
+            sampleList.appendChild(li);
+          }
+          packProbeResult.appendChild(sampleList);
+        }
         if (Array.isArray(data.notes) && data.notes.length > 0) {
           const notesP = document.createElement("p");
           notesP.className = "muted mb-0";
@@ -1678,7 +1728,10 @@
           packProbeResult.appendChild(notesP);
         }
       } catch (err) {
-        packProbeResult.textContent = `Probe error: ${err.message}`;
+        const msg = err && err.name === "TimeoutError"
+          ? "Probe timed out after 35s. The target site may be slow or blocking requests."
+          : `Probe error: ${err.message}`;
+        packProbeResult.textContent = msg;
       } finally {
         packProbeBtn.disabled = false;
       }

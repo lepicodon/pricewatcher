@@ -6,49 +6,18 @@
   <div>
     <h1>Source Packs &amp; Discovery</h1>
     <p class="muted mb-0">
-      Manage curated category packs, sync built-in updates, and live-probe new deal feeds or stores to enrich your packs over time.
+      Curated deal-source templates by category. Sync built-in updates or test any new URL before adding it to a pack.
     </p>
   </div>
   <div class="actions-row">
-    <button type="button" id="sync-builtin-packs-btn" class="btn btn-sm">Sync Built-in Packs</button>
+    <button type="button" id="sync-builtin-packs-btn" class="btn btn-sm" title="Merge new built-in packs and sources without overwriting your custom edits">Sync Built-in Packs</button>
     <button type="button" id="new-pack-btn" class="btn btn-primary btn-sm">+ New Source Pack</button>
   </div>
 </section>
 
 <p id="sync-packs-status" class="muted mb-md" aria-live="polite"></p>
 
-<section class="card stack-sm mb-lg" id="pack-probe-section">
-  <div class="card-header">
-    <div>
-      <h2>Discover &amp; Probe New Source</h2>
-      <p class="muted mb-0">
-        Test any RSS feed, Shopify <code>/suggest.json</code> or <code>/products.json</code> endpoint, or HTML page before adding it to a pack.
-      </p>
-    </div>
-  </div>
-  <div class="actions-row">
-    <input
-      type="url"
-      id="pack-probe-url"
-      class="flex-1"
-      placeholder="https://example.com/deals.rss or https://store.com/search/suggest.json?q={query_encoded}&amp;resources[type]=product"
-      aria-label="Source URL to probe"
-    >
-    <button type="button" id="pack-probe-btn" class="btn btn-primary btn-sm">Probe URL</button>
-  </div>
-  <div id="pack-probe-result" class="stack-xs" hidden></div>
-</section>
-
-<section class="stack-md" id="source-packs-section">
-  <div class="section-head">
-    <div>
-      <h2>Category Source Packs</h2>
-      <p class="muted">
-        Stored in <code>config/settings.yaml</code>. Supports <code>{query}</code>, <code>{query_encoded}</code>, <code>{make}</code>, and <code>{model}</code> placeholders.
-      </p>
-    </div>
-  </div>
-
+<section class="stack-md mb-md" id="source-packs-section">
   <div id="new-pack-form-wrap" class="card stack-sm" hidden>
     <h3>Create New Source Pack</h3>
     <div class="form-grid">
@@ -111,7 +80,7 @@
           <p class="muted mb-0">{{ pack.description or "No description" }}</p>
         </div>
         <div class="actions-row actions-nowrap">
-          <button type="button" class="btn btn-sm btn-icon" data-add-pack-source aria-label="Add vendor to {{ pack.label }}" title="Add vendor to pack">
+          <button type="button" class="btn btn-sm btn-icon" data-add-pack-source aria-label="Add source to {{ pack.label }}" title="Add source to pack">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -160,7 +129,7 @@
         {% for tmpl in pack.sources %}
         <div class="pack-source-row" data-pack-source-row>
           <div>
-            <label for="psrc-name-{{ pack_id }}-{{ loop.index0 }}">Vendor Name Template</label>
+            <label for="psrc-name-{{ pack_id }}-{{ loop.index0 }}">Source Name Template</label>
             <input type="text" id="psrc-name-{{ pack_id }}-{{ loop.index0 }}" data-psrc-name value="{{ tmpl.name }}" required>
           </div>
           <div>
@@ -185,7 +154,7 @@
                 <polygon points="6 4 20 12 6 20 6 4"></polygon>
               </svg>
             </button>
-            <button type="button" class="btn btn-sm btn-icon btn-danger" data-remove-pack-source aria-label="Remove {{ tmpl.name }}" title="Remove vendor">
+            <button type="button" class="btn btn-sm btn-icon btn-danger" data-remove-pack-source aria-label="Remove {{ tmpl.name }}" title="Remove source">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="3 6 5 6 21 6"></polyline>
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
@@ -203,5 +172,28 @@
     </article>
     {% endfor %}
   </div>
+</section>
+
+<section class="card stack-sm" id="pack-probe-section">
+  <div class="card-header">
+    <div>
+      <h2>Discover &amp; Probe New Source</h2>
+      <p class="muted mb-0">
+        Test any RSS feed, Shopify <code>/suggest.json</code> or <code>/products.json</code> endpoint, or HTML page, then add it to the active pack above. Supports <code>{query}</code>, <code>{query_encoded}</code>, <code>{make}</code>, and <code>{model}</code>.
+      </p>
+    </div>
+  </div>
+  <div class="actions-row">
+    <input
+      type="text"
+      inputmode="url"
+      id="pack-probe-url"
+      class="flex-1"
+      placeholder="https://example.com/deals.rss or https://store.com/search/suggest.json?q={query_encoded}&amp;resources[type]=product"
+      aria-label="Source URL to probe"
+    >
+    <button type="button" id="pack-probe-btn" class="btn btn-primary">Probe URL</button>
+  </div>
+  <div id="pack-probe-result" class="stack-sm" hidden></div>
 </section>
 {% endblock %}
