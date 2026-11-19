@@ -23,7 +23,7 @@ PriceWatcher is a self-hosted price monitoring daemon and web administration das
   - `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
-  - `Referrer-Policy: no-referrer`
+  - `Referrer-Policy: same-origin`
   - `Cache-Control: no-store` on non-static responses.
 
 ### 4. Server-Side Request Forgery (SSRF) & DNS Rebinding ([http_client.py](src/pricewatcher/http_client.py))

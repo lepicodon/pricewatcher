@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
@@ -450,6 +450,11 @@ async def logout_submit(request: Request) -> RedirectResponse:
     response = RedirectResponse(url="/login", status_code=303)
     auth.clear_session_cookies(response, request)
     return response
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(status_code=204)
 
 
 @router.get("/", response_class=HTMLResponse)

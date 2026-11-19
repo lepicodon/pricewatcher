@@ -633,8 +633,9 @@ def test_xss_escaping_csp_headers_and_zero_inline_scripts_or_styles(
             assert login_res.headers["content-security-policy"] == auth.CSP_POLICY
             assert login_res.headers["x-content-type-options"] == "nosniff"
             assert login_res.headers["x-frame-options"] == "DENY"
-            assert login_res.headers["referrer-policy"] == "no-referrer"
+            assert login_res.headers["referrer-policy"] == "same-origin"
             assert login_res.headers["cache-control"] == "no-store"
+            assert client.get("/favicon.ico", follow_redirects=False).status_code == 204
 
             _login_client(client)
 
@@ -644,7 +645,7 @@ def test_xss_escaping_csp_headers_and_zero_inline_scripts_or_styles(
                 assert res.headers["content-security-policy"] == auth.CSP_POLICY
                 assert res.headers["x-content-type-options"] == "nosniff"
                 assert res.headers["x-frame-options"] == "DENY"
-                assert res.headers["referrer-policy"] == "no-referrer"
+                assert res.headers["referrer-policy"] == "same-origin"
                 assert res.headers["cache-control"] == "no-store"
 
                 html = res.text

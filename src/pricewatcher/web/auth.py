@@ -535,7 +535,7 @@ def _is_public_asset_or_health(request: Request) -> bool:
     if request.method not in {"GET", "HEAD"}:
         return False
     path = request.url.path
-    return path == "/healthz" or path.startswith("/static/")
+    return path in {"/healthz", "/favicon.ico"} or path.startswith("/static/")
 
 
 def _is_api_request(request: Request) -> bool:
@@ -710,7 +710,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = CSP_POLICY
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "same-origin"
         if not request.url.path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-store"
         return response
