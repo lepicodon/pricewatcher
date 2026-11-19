@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-from collections import defaultdict
 from collections.abc import Callable
 import hashlib
 import hmac
@@ -52,6 +51,7 @@ SCRYPT_DKLEN = 32
 
 LOGIN_RATE_LIMIT_MAX_FAILURES = 5
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+LOGIN_RATE_LIMIT_MAX_KEYS = 4096
 
 CSP_POLICY = (
     "default-src 'self'; "
@@ -311,12 +311,30 @@ class LoginRateLimiter:
         *,
         max_failures: int = LOGIN_RATE_LIMIT_MAX_FAILURES,
         window_seconds: int = LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+        max_keys: int = LOGIN_RATE_LIMIT_MAX_KEYS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if max_keys < 1:
+            raise ValueError("max_keys must be at least 1.")
         self.max_failures = max_failures
         self.window_seconds = window_seconds
+        self.max_keys = max_keys
         self._clock = clock
-        self._failures: dict[str, list[float]] = defaultdict(list)
+        self._failures: dict[str, list[float]] = {}
+        self._last_sweep: float = clock()
+
+    def _sweep_expired(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        stale_keys: list[str] = []
+        for key, timestamps in self._failures.items():
+            fresh = [ts for ts in timestamps if ts > cutoff]
+            if fresh:
+                self._failures[key] = fresh
+            else:
+                stale_keys.append(key)
+        for key in stale_keys:
+            del self._failures[key]
+        self._last_sweep = now
 
     def _prune(self, key: str, now: float) -> list[float]:
         cutoff = now - self.window_seconds
@@ -330,6 +348,8 @@ class LoginRateLimiter:
     def check_blocked(self, key: str) -> int | None:
         """Return Retry-After seconds if blocked, or None if permitted."""
         now = self._clock()
+        if now - self._last_sweep >= self.window_seconds or len(self._failures) >= self.max_keys:
+            self._sweep_expired(now)
         bucket = self._prune(key, now)
         if len(bucket) >= self.max_failures:
             retry_after = math.ceil((bucket[0] + self.window_seconds) - now)
@@ -338,8 +358,19 @@ class LoginRateLimiter:
 
     def record_failure(self, key: str) -> None:
         now = self._clock()
+        swept = False
+        if now - self._last_sweep >= self.window_seconds or len(self._failures) >= self.max_keys:
+            self._sweep_expired(now)
+            swept = True
         bucket = self._prune(key, now)
+        if key not in self._failures and len(self._failures) >= self.max_keys:
+            if not swept:
+                self._sweep_expired(now)
+            while len(self._failures) >= self.max_keys and self._failures:
+                del self._failures[next(iter(self._failures))]
         bucket.append(now)
+        # Re-insert to keep dict order aligned with recency for O(1) eviction.
+        self._failures.pop(key, None)
         self._failures[key] = bucket
 
     def reset(self, key: str) -> None:

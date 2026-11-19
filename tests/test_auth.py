@@ -854,6 +854,85 @@ def test_login_rate_limit_untrusted_proxy_ignores_spoofed_xff(
         db.close()
 
 
+def test_login_rate_limiter_periodic_sweep_removes_unqueried_expired_keys() -> None:
+    now = [0.0]
+    limiter = auth.LoginRateLimiter(
+        max_failures=3,
+        window_seconds=60,
+        max_keys=100,
+        clock=lambda: now[0],
+    )
+
+    now[0] = 10.0
+    limiter.record_failure("stale-1")
+    limiter.record_failure("stale-2")
+    assert set(limiter._failures) == {"stale-1", "stale-2"}
+
+    # Advance past window_seconds without ever querying stale-1 or stale-2 again.
+    now[0] = 75.0
+    assert limiter.check_blocked("unrelated-ip") is None
+    assert limiter._failures == {}
+
+    # Periodic sweep also triggers from record_failure.
+    now[0] = 80.0
+    limiter.record_failure("stale-3")
+    assert "stale-3" in limiter._failures
+
+    now[0] = 145.0
+    limiter.record_failure("fresh-ip")
+    assert list(limiter._failures) == ["fresh-ip"]
+
+
+def test_login_rate_limiter_bounds_distinct_keys_under_flood() -> None:
+    with pytest.raises(ValueError):
+        auth.LoginRateLimiter(max_keys=0)
+
+    now = [0.0]
+    limiter = auth.LoginRateLimiter(
+        max_failures=5,
+        window_seconds=900,
+        max_keys=5,
+        clock=lambda: now[0],
+    )
+
+    for idx in range(50):
+        now[0] += 1.0
+        limiter.record_failure(f"198.51.100.{idx}")
+        assert len(limiter._failures) <= limiter.max_keys
+
+    assert len(limiter._failures) == 5
+    assert list(limiter._failures) == [f"198.51.100.{idx}" for idx in range(45, 50)]
+
+    # Updating an existing key refreshes its recency and does not evict it prematurely.
+    now_short = [0.0]
+    bounded = auth.LoginRateLimiter(
+        max_failures=5,
+        window_seconds=60,
+        max_keys=3,
+        clock=lambda: now_short[0],
+    )
+    now_short[0] = 1.0
+    bounded.record_failure("k1")
+    now_short[0] = 2.0
+    bounded.record_failure("k2")
+    now_short[0] = 3.0
+    bounded.record_failure("k3")
+    now_short[0] = 4.0
+    bounded.record_failure("k1")
+    now_short[0] = 5.0
+    bounded.record_failure("k4")
+    assert list(bounded._failures) == ["k3", "k1", "k4"]
+
+    # When max_keys is full and entries have expired (even within sweep interval),
+    # record_failure sweeps expired entries before evicting fresh ones.
+    now_short[0] = 50.0
+    bounded.check_blocked("probe")  # updates _last_sweep to 50.0
+    now_short[0] = 64.0  # k3 (t=3) and k1 (t=4) are expired (cutoff=4.0), k4 (t=5) is fresh
+    bounded.record_failure("k5")
+    assert list(bounded._failures) == ["k4", "k5"]
+    assert len(bounded._failures) <= bounded.max_keys
+
+
 def test_csrf_enforcement_origins_headers_and_form_posts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
