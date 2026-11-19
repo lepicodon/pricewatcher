@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta, timezone
+import logging
 from pathlib import Path
 import sqlite3
 import time
+from typing import Any
 
 import pytest
 
@@ -29,6 +31,7 @@ from pricewatcher.config import (
 )
 from pricewatcher.engine import PollEngine
 import pricewatcher.http_client as http_client_module
+import pricewatcher.main as main_module
 from pricewatcher.main import create_app, scheduler_loop
 from pricewatcher.notifiers.base import NotificationDispatcher
 from pricewatcher.notifiers.waha import ChannelSendResult
@@ -1398,4 +1401,282 @@ async def test_lifespan_wires_optional_http_context(
         assert events == ["enter", "exit"]
         assert app.state.engine.http_ctx is None
     finally:
+        db.close()
+
+
+class _LogWaiter(logging.Handler):
+    """Synchronization helper that fires an asyncio.Event when an ERROR log matches."""
+
+    def __init__(self, substring: str) -> None:
+        super().__init__(level=logging.ERROR)
+        self._substring = substring
+        self.count = 0
+        self.event = asyncio.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._substring in record.getMessage():
+            self.count += 1
+            self.event.set()
+
+
+async def test_scheduler_loop_poll_watch_exception_schedules_next_due_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, settings, watch = _setup_store(tmp_path)
+    store.save_settings(settings)
+    db = Database(tmp_path / "sched_poll_err.db")
+    pw_logger = logging.getLogger("pricewatcher")
+    err_waiter = _LogWaiter("Error polling watch")
+    pw_logger.addHandler(err_waiter)
+
+    try:
+        engine = PollEngine(
+            store=store,
+            db=db,
+            adapter_factory=lambda _: FakeAdapter([[]]),  # type: ignore[return-value]
+        )
+        orig_poll_watch = engine.poll_watch
+        poll_attempts = 0
+        recovered = asyncio.Event()
+
+        async def flaky_poll_watch(
+            w: WatchConfig,
+            *,
+            settings: SettingsConfig | None = None,
+            dry_run: bool = False,
+            now: datetime | None = None,
+        ) -> Any:
+            nonlocal poll_attempts
+            poll_attempts += 1
+            if poll_attempts == 1:
+                raise RuntimeError("unexpected poll crash")
+            report = await orig_poll_watch(w, settings=settings, dry_run=dry_run, now=now)
+            recovered.set()
+            return report
+
+        monkeypatch.setattr(engine, "poll_watch", flaky_poll_watch)
+
+        orig_compute_next_due = main_module._compute_next_due
+        scheduled_calls: list[tuple[str, datetime]] = []
+        due_scheduled = asyncio.Event()
+
+        def spy_compute_next_due(w: WatchConfig) -> datetime:
+            real_due = orig_compute_next_due(w)
+            scheduled_calls.append((w.id, real_due))
+            due_scheduled.set()
+            if len(scheduled_calls) == 1:
+                # Shorten first retry delay so recovery pass runs promptly without busy-spinning
+                return datetime.now(UTC) + timedelta(milliseconds=120)
+            return real_due
+
+        monkeypatch.setattr(main_module, "_compute_next_due", spy_compute_next_due)
+
+        wakeup_event = asyncio.Event()
+        stop_event = asyncio.Event()
+
+        with caplog.at_level(logging.ERROR, logger="pricewatcher"):
+            sched_task = asyncio.create_task(
+                scheduler_loop(
+                    store=store,
+                    db=db,
+                    engine=engine,
+                    wakeup_event=wakeup_event,
+                    stop_event=stop_event,
+                )
+            )
+            await asyncio.wait_for(err_waiter.event.wait(), timeout=2.0)
+            await asyncio.wait_for(due_scheduled.wait(), timeout=2.0)
+
+            assert len(scheduled_calls) == 1
+            assert scheduled_calls[0][0] == watch.id
+            assert scheduled_calls[0][1] > datetime.now(UTC) + timedelta(minutes=25)
+            assert "Error polling watch" in caplog.text
+            assert "unexpected poll crash" in caplog.text
+
+            # Loop stays alive, waits until the scheduled next_due, and recovers cleanly
+            await asyncio.wait_for(recovered.wait(), timeout=2.0)
+            assert poll_attempts == 2
+            assert len(scheduled_calls) == 2
+
+            stop_event.set()
+            await asyncio.wait_for(sched_task, timeout=2.0)
+    finally:
+        pw_logger.removeHandler(err_waiter)
+        db.close()
+
+
+async def test_scheduler_loop_config_load_error_logs_and_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, settings, _ = _setup_store(tmp_path)
+    store.save_settings(settings)
+    db = Database(tmp_path / "sched_cfg_err.db")
+    pw_logger = logging.getLogger("pricewatcher")
+    cfg_err_waiter = _LogWaiter("Failed reloading config in scheduler loop")
+    pw_logger.addHandler(cfg_err_waiter)
+
+    try:
+        orig_load_watches = store.load_watches
+        orig_load_settings = store.load_settings
+        watch_calls = 0
+        settings_calls = 0
+
+        def flaky_load_watches() -> list[WatchConfig]:
+            nonlocal watch_calls
+            watch_calls += 1
+            if watch_calls == 1:
+                raise OSError("yaml read failure")
+            return orig_load_watches()
+
+        def flaky_load_settings() -> SettingsConfig:
+            nonlocal settings_calls
+            settings_calls += 1
+            if settings_calls == 1:
+                raise ValueError("corrupt settings yaml")
+            return orig_load_settings()
+
+        monkeypatch.setattr(store, "load_watches", flaky_load_watches)
+        monkeypatch.setattr(store, "load_settings", flaky_load_settings)
+
+        polled = asyncio.Event()
+        poll_count = 0
+
+        class CountingAdapter:
+            async def fetch(self, _source: SourceConfig) -> FetchOutcome:
+                nonlocal poll_count
+                poll_count += 1
+                polled.set()
+                return FetchOutcome(http_status=200)
+
+        engine = PollEngine(
+            store=store,
+            db=db,
+            adapter_factory=lambda _: CountingAdapter(),  # type: ignore[return-value]
+        )
+        wakeup_event = asyncio.Event()
+        stop_event = asyncio.Event()
+
+        with caplog.at_level(logging.ERROR, logger="pricewatcher"):
+            sched_task = asyncio.create_task(
+                scheduler_loop(
+                    store=store,
+                    db=db,
+                    engine=engine,
+                    wakeup_event=wakeup_event,
+                    stop_event=stop_event,
+                )
+            )
+            # Pass 1: store.load_watches raises
+            await asyncio.wait_for(cfg_err_waiter.event.wait(), timeout=2.0)
+            assert cfg_err_waiter.count == 1
+            assert poll_count == 0
+
+            # Pass 2: store.load_settings raises
+            cfg_err_waiter.event.clear()
+            wakeup_event.set()
+            await asyncio.wait_for(cfg_err_waiter.event.wait(), timeout=2.0)
+            assert cfg_err_waiter.count == 2
+            assert poll_count == 0
+
+            # Pass 3: both succeed and active watch is polled
+            wakeup_event.set()
+            await asyncio.wait_for(polled.wait(), timeout=2.0)
+            assert poll_count == 1
+            assert "Failed reloading config in scheduler loop" in caplog.text
+            assert "yaml read failure" in caplog.text
+            assert "corrupt settings yaml" in caplog.text
+
+            stop_event.set()
+            await asyncio.wait_for(sched_task, timeout=2.0)
+    finally:
+        pw_logger.removeHandler(cfg_err_waiter)
+        db.close()
+
+
+async def test_scheduler_loop_prune_error_logs_and_still_polls_active_watches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store, settings, watch = _setup_store(tmp_path)
+    store.save_settings(settings)
+    db = Database(tmp_path / "sched_prune_err.db")
+    # Seed an overdue runtime so the watch is strictly due (<= pass-1 `now`) on the first pass
+    db.update_watch_runtime(
+        watch_id=watch.id,
+        last_run_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+        last_status="ok",
+    )
+    pw_logger = logging.getLogger("pricewatcher")
+    prune_err_waiter = _LogWaiter("Failed pruning old observations")
+    pw_logger.addHandler(prune_err_waiter)
+
+    try:
+        loop = asyncio.get_running_loop()
+        orig_prune = db.prune_old_observations
+        prune_calls = 0
+        prune_recovered = asyncio.Event()
+
+        def flaky_prune(retention_days: int = 180) -> int:
+            nonlocal prune_calls
+            prune_calls += 1
+            if prune_calls == 1:
+                raise sqlite3.OperationalError("database is locked")
+            deleted = orig_prune(retention_days)
+            loop.call_soon_threadsafe(prune_recovered.set)
+            return deleted
+
+        monkeypatch.setattr(db, "prune_old_observations", flaky_prune)
+
+        polled = asyncio.Event()
+        release_poll = asyncio.Event()
+        poll_count = 0
+
+        class CountingAdapter:
+            async def fetch(self, _source: SourceConfig) -> FetchOutcome:
+                nonlocal poll_count
+                poll_count += 1
+                polled.set()
+                await release_poll.wait()
+                return FetchOutcome(http_status=200)
+
+        engine = PollEngine(
+            store=store,
+            db=db,
+            adapter_factory=lambda _: CountingAdapter(),  # type: ignore[return-value]
+        )
+        wakeup_event = asyncio.Event()
+        stop_event = asyncio.Event()
+
+        with caplog.at_level(logging.ERROR, logger="pricewatcher"):
+            sched_task = asyncio.create_task(
+                scheduler_loop(
+                    store=store,
+                    db=db,
+                    engine=engine,
+                    wakeup_event=wakeup_event,
+                    stop_event=stop_event,
+                )
+            )
+            await asyncio.wait_for(prune_err_waiter.event.wait(), timeout=2.0)
+            await asyncio.wait_for(polled.wait(), timeout=2.0)
+
+            assert poll_count == 1
+            assert prune_calls == 1
+            assert "Failed pruning old observations" in caplog.text
+            assert "database is locked" in caplog.text
+
+            # Release poll task; task_done_event wakes pass 2 which retries pruning cleanly
+            release_poll.set()
+            await asyncio.wait_for(prune_recovered.wait(), timeout=2.0)
+            assert prune_calls == 2
+
+            stop_event.set()
+            await asyncio.wait_for(sched_task, timeout=2.0)
+    finally:
+        pw_logger.removeHandler(prune_err_waiter)
         db.close()
