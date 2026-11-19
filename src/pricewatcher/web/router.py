@@ -27,6 +27,7 @@ from pricewatcher.config import (
     RecipientConfig,
     RulesConfig,
     ScheduleConfig,
+    SettingsConfig,
     SourceConfig,
     SourcePackConfig,
     SourceTemplateConfig,
@@ -687,6 +688,10 @@ async def api_save_watch(request: Request) -> JSONResponse | HTMLResponse | Redi
     )
 
 
+class _DuplicateConflictError(Exception):
+    """Raised when no unique duplicate watch identifier is available."""
+
+
 @router.post("/api/watches/{watch_id}/toggle", response_model=None)
 async def api_toggle_watch(request: Request, watch_id: str) -> JSONResponse | RedirectResponse:
     store: ConfigStore = request.app.state.store
@@ -695,12 +700,14 @@ async def api_toggle_watch(request: Request, watch_id: str) -> JSONResponse | Re
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid watch id"}, status_code=404)
 
-    watch = store.get_watch(clean_id)
+    def _toggle(watch: WatchConfig) -> WatchConfig:
+        watch.enabled = not watch.enabled
+        return watch
+
+    watch = store.update_watch(clean_id, _toggle)
     if watch is None:
         return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
 
-    watch.enabled = not watch.enabled
-    store.save_watch(watch)
     _wake_scheduler(request)
     if _prefers_json(request):
         return JSONResponse({"ok": True, "id": watch.id, "enabled": watch.enabled})
@@ -716,39 +723,47 @@ async def api_duplicate_watch(request: Request, watch_id: str) -> JSONResponse |
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid watch id"}, status_code=404)
 
-    watch = store.get_watch(clean_id)
-    if watch is None:
-        return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
+    source_id = clean_id
 
-    candidate_id = ""
-    for suffix_idx in range(1, 100):
-        suffix = "-copy" if suffix_idx == 1 else f"-copy-{suffix_idx}"
-        base = watch.id[: 63 - len(suffix)].rstrip("-_")
-        attempt = f"{base}{suffix}"
-        if store.get_watch(attempt) is None:
-            candidate_id = attempt
-            break
-    if not candidate_id:
+    def _duplicate(watch: WatchConfig) -> WatchConfig:
+        nonlocal source_id
+        source_id = watch.id
+        candidate_id = ""
+        for suffix_idx in range(1, 100):
+            suffix = "-copy" if suffix_idx == 1 else f"-copy-{suffix_idx}"
+            base = watch.id[: 63 - len(suffix)].rstrip("-_")
+            attempt = f"{base}{suffix}"
+            if store.get_watch(attempt) is None:
+                candidate_id = attempt
+                break
+        if not candidate_id:
+            raise _DuplicateConflictError()
+        return watch.model_copy(
+            deep=True,
+            update={
+                "id": candidate_id,
+                "name": f"{watch.name} (Copy)",
+                "enabled": False,
+            },
+        )
+
+    try:
+        cloned = store.update_watch(clean_id, _duplicate)
+    except _DuplicateConflictError:
         return JSONResponse(
             {"ok": False, "error": "Could not allocate unique duplicate watch id"},
             status_code=409,
         )
 
-    cloned = watch.model_copy(
-        deep=True,
-        update={
-            "id": candidate_id,
-            "name": f"{watch.name} (Copy)",
-            "enabled": False,
-        },
-    )
-    store.save_watch(cloned)
+    if cloned is None:
+        return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
+
     _wake_scheduler(request)
     if _prefers_json(request):
         return JSONResponse({"ok": True, "watch": cloned.model_dump(mode="json")})
     return _manage_redirect(
         edit=cloned.id,
-        flash=f"Duplicated {watch.id} as {cloned.id} (paused).",
+        flash=f"Duplicated {source_id} as {cloned.id} (paused).",
         flash_ok=True,
     )
 
@@ -1057,9 +1072,10 @@ async def api_save_source_pack(request: Request, pack_id: str) -> JSONResponse:
     except (ValidationError, ValueError, TypeError) as exc:
         return JSONResponse({"ok": False, "error": _format_validation_error(exc)}, status_code=422)
 
-    settings = store.load_settings()
-    settings.source_packs[clean_id] = pack
-    store.save_settings(settings)
+    def _save_pack(settings: SettingsConfig) -> None:
+        settings.source_packs[clean_id] = pack
+
+    store.update_settings(_save_pack)
     return JSONResponse({"ok": True, "pack_id": clean_id, "pack": pack.model_dump(mode="json")})
 
 
@@ -1071,14 +1087,18 @@ async def api_delete_source_pack(request: Request, pack_id: str) -> JSONResponse
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid pack id"}, status_code=404)
 
-    settings = store.load_settings()
-    if clean_id not in settings.source_packs:
+    def _delete_pack(settings: SettingsConfig) -> None:
+        if clean_id not in settings.source_packs:
+            raise KeyError(clean_id)
+        del settings.source_packs[clean_id]
+
+    try:
+        store.update_settings(_delete_pack)
+    except KeyError:
         return JSONResponse(
             {"ok": False, "error": f"Unknown source pack {clean_id!r}"}, status_code=404
         )
 
-    del settings.source_packs[clean_id]
-    store.save_settings(settings)
     return JSONResponse({"ok": True, "deleted": clean_id})
 
 
@@ -1105,9 +1125,10 @@ async def api_save_recipient(request: Request, recipient_key: str) -> JSONRespon
     except (ValidationError, ValueError) as exc:
         return JSONResponse({"ok": False, "error": _format_validation_error(exc)}, status_code=422)
 
-    settings = store.load_settings()
-    settings.notifications.recipients[clean_key] = rec
-    store.save_settings(settings)
+    def _save_recipient(settings: SettingsConfig) -> None:
+        settings.notifications.recipients[clean_key] = rec
+
+    store.update_settings(_save_recipient)
     return JSONResponse(
         {"ok": True, "recipient_key": clean_key, "recipient": rec.model_dump(mode="json")}
     )
@@ -1121,12 +1142,16 @@ async def api_delete_recipient(request: Request, recipient_key: str) -> JSONResp
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid user key"}, status_code=404)
 
-    settings = store.load_settings()
-    if clean_key not in settings.notifications.recipients:
+    def _delete_recipient(settings: SettingsConfig) -> None:
+        if clean_key not in settings.notifications.recipients:
+            raise KeyError(clean_key)
+        del settings.notifications.recipients[clean_key]
+
+    try:
+        store.update_settings(_delete_recipient)
+    except KeyError:
         return JSONResponse({"ok": False, "error": f"Unknown user {clean_key!r}"}, status_code=404)
 
-    del settings.notifications.recipients[clean_key]
-    store.save_settings(settings)
     return JSONResponse({"ok": True, "deleted": clean_key})
 
 

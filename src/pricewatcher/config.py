@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import contextlib
 from datetime import UTC, datetime, timedelta
 import logging
@@ -669,6 +670,14 @@ class ConfigStore:
             self._settings_cache = None
             return path
 
+    def update_settings[T](self, fn: Callable[[SettingsConfig], T]) -> T:
+        """Atomically load settings, apply ``fn``, persist, and return ``fn``'s result."""
+        with self._cache_lock:
+            settings = self.load_settings()
+            result = fn(settings)
+            self.save_settings(settings)
+            return result
+
     def save_watch(self, watch: WatchConfig) -> Path:
         target = self._safe_watch_path(watch.id)
         payload = watch.model_dump(mode="json")
@@ -677,6 +686,19 @@ class ConfigStore:
             self._watches_cache = None
             self._watch_file_cache.pop(watch.id, None)
             return path
+
+    def update_watch(
+        self, watch_id: str, fn: Callable[[WatchConfig], WatchConfig | None]
+    ) -> WatchConfig | None:
+        """Atomically load watch ``watch_id``, apply ``fn``, persist, and return the saved watch."""
+        with self._cache_lock:
+            watch = self.get_watch(watch_id)
+            if watch is None:
+                return None
+            updated = fn(watch)
+            target = updated if isinstance(updated, WatchConfig) else watch
+            self.save_watch(target)
+            return target
 
     def delete_watch(self, watch_id: str) -> bool:
         target = self._safe_watch_path(watch_id)
@@ -709,27 +731,28 @@ def load_builtin_source_packs() -> dict[str, SourcePackConfig]:
 def sync_builtin_source_packs(store: ConfigStore) -> tuple[list[str], int, SettingsConfig]:
     """Non-destructively merge built-in packs and new sources into settings.yaml."""
     builtin_packs = load_builtin_source_packs()
-    settings = store.load_settings()
-    packs_added: list[str] = []
-    sources_added = 0
+    with store._cache_lock:
+        settings = store.load_settings()
+        packs_added: list[str] = []
+        sources_added = 0
 
-    for pack_id, builtin_pack in builtin_packs.items():
-        existing = settings.source_packs.get(pack_id)
-        if existing is None:
-            settings.source_packs[pack_id] = builtin_pack.model_copy(deep=True)
-            packs_added.append(pack_id)
-            sources_added += len(builtin_pack.sources)
-            continue
+        for pack_id, builtin_pack in builtin_packs.items():
+            existing = settings.source_packs.get(pack_id)
+            if existing is None:
+                settings.source_packs[pack_id] = builtin_pack.model_copy(deep=True)
+                packs_added.append(pack_id)
+                sources_added += len(builtin_pack.sources)
+                continue
 
-        seen_urls = {src.url_template.strip().lower() for src in existing.sources}
-        for src in builtin_pack.sources:
-            key = src.url_template.strip().lower()
-            if key not in seen_urls:
-                existing.sources.append(src.model_copy(deep=True))
-                seen_urls.add(key)
-                sources_added += 1
+            seen_urls = {src.url_template.strip().lower() for src in existing.sources}
+            for src in builtin_pack.sources:
+                key = src.url_template.strip().lower()
+                if key not in seen_urls:
+                    existing.sources.append(src.model_copy(deep=True))
+                    seen_urls.add(key)
+                    sources_added += 1
 
-    if packs_added or sources_added > 0:
-        store.save_settings(settings)
+        if packs_added or sources_added > 0:
+            store.save_settings(settings)
 
-    return packs_added, sources_added, settings
+        return packs_added, sources_added, settings
