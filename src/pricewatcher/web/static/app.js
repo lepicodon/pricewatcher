@@ -1559,6 +1559,132 @@
     bindTablistKeyboard(packTabsEl, "[data-pack-tab]", activatePackTab);
   }
 
+  // Sync Built-in Packs & Live Probe on /packs
+  const syncPacksBtn = document.getElementById("sync-builtin-packs-btn");
+  const syncPacksStatus = document.getElementById("sync-packs-status");
+  if (syncPacksBtn) {
+    syncPacksBtn.addEventListener("click", async () => {
+      syncPacksBtn.disabled = true;
+      if (syncPacksStatus) syncPacksStatus.textContent = "Syncing built-in packs...";
+      try {
+        const res = await csrfFetch("/api/source-packs/sync", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (syncPacksStatus) syncPacksStatus.textContent = data.error || "Sync failed.";
+          return;
+        }
+        const addedPacks = Array.isArray(data.packs_added) ? data.packs_added.length : 0;
+        const addedSources = Number(data.sources_added || 0);
+        if (addedPacks === 0 && addedSources === 0) {
+          if (syncPacksStatus) syncPacksStatus.textContent = "Already up to date with all built-in packs.";
+        } else {
+          if (syncPacksStatus) {
+            syncPacksStatus.textContent = `Synced ${addedPacks} new pack(s) and ${addedSources} new source(s). Reloading...`;
+          }
+          window.setTimeout(() => window.location.reload(), 600);
+        }
+      } catch (err) {
+        if (syncPacksStatus) syncPacksStatus.textContent = `Sync error: ${err.message}`;
+      } finally {
+        syncPacksBtn.disabled = false;
+      }
+    });
+  }
+
+  const packProbeBtn = document.getElementById("pack-probe-btn");
+  const packProbeUrlInput = document.getElementById("pack-probe-url");
+  const packProbeResult = document.getElementById("pack-probe-result");
+  if (packProbeBtn && packProbeUrlInput && packProbeResult) {
+    packProbeBtn.addEventListener("click", async () => {
+      const rawUrl = packProbeUrlInput.value.trim();
+      if (!rawUrl) {
+        packProbeResult.hidden = false;
+        packProbeResult.textContent = "Enter a URL starting with http:// or https://.";
+        return;
+      }
+      const probeUrl = rawUrl
+        .replaceAll("{query_encoded}", "Mac+Studio")
+        .replaceAll("{query}", "Mac Studio")
+        .replaceAll("{make}", "toyota")
+        .replaceAll("{model}", "tundra");
+
+      packProbeBtn.disabled = true;
+      packProbeResult.hidden = false;
+      packProbeResult.textContent = "Probing URL...";
+
+      try {
+        const res = await csrfFetch("/api/sources/probe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: probeUrl }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          packProbeResult.textContent = data.error || `Probe failed (HTTP ${res.status}).`;
+          return;
+        }
+
+        packProbeResult.replaceChildren();
+        const summaryRow = document.createElement("div");
+        summaryRow.className = "actions-row";
+
+        const clsBadge = document.createElement("span");
+        clsBadge.className = data.classification === "A_CLEAN_HTTP"
+          ? "badge badge-success"
+          : data.classification === "B_NEEDS_PLAYWRIGHT"
+            ? "badge badge-warn"
+            : "badge badge-danger";
+        clsBadge.textContent = data.classification || "UNKNOWN";
+
+        const infoText = document.createElement("span");
+        const adapterLabel = data.recommended_adapter || "none";
+        const countLabel = Number(data.item_count || 0);
+        infoText.textContent = `Adapter: ${adapterLabel} · Format: ${data.format_detected || "unknown"} · Items: ${countLabel}`;
+
+        summaryRow.append(clsBadge, infoText);
+
+        if (data.recommended_adapter) {
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "btn btn-sm btn-primary";
+          addBtn.textContent = "Add to Active Pack";
+          addBtn.addEventListener("click", () => {
+            if (!sourcePacksList) return;
+            const activeCard = sourcePacksList.querySelector("[data-pack-card]:not([hidden])");
+            if (!activeCard) return;
+            const packId = activeCard.getAttribute("data-pack-id") || "";
+            const sourcesWrap = activeCard.querySelector("[data-pack-sources]");
+            if (!sourcesWrap) return;
+            const row = buildPackSourceRow(packId, {
+              name: data.recommended_name || "New Source",
+              adapter: data.recommended_adapter,
+              url_template: rawUrl,
+              options: data.recommended_options || {},
+            });
+            sourcesWrap.appendChild(row);
+            const statusEl = activeCard.querySelector("[data-pack-status]");
+            if (statusEl) {
+              statusEl.textContent = "Added probed source to pack. Click Save (disk icon) to persist.";
+            }
+          });
+          summaryRow.appendChild(addBtn);
+        }
+
+        packProbeResult.appendChild(summaryRow);
+        if (Array.isArray(data.notes) && data.notes.length > 0) {
+          const notesP = document.createElement("p");
+          notesP.className = "muted mb-0";
+          notesP.textContent = data.notes.join(" ");
+          packProbeResult.appendChild(notesP);
+        }
+      } catch (err) {
+        packProbeResult.textContent = `Probe error: ${err.message}`;
+      } finally {
+        packProbeBtn.disabled = false;
+      }
+    });
+  }
+
   // Manage Watch Form Tabs on /manage
   const manageTabsEl = document.getElementById("manage-form-tabs");
   const manageFormEl = document.getElementById("manage-watch-form");

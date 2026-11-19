@@ -33,6 +33,8 @@ from pricewatcher.config import (
     WatchConfig,
     detect_vehicle_make_model,
     expand_include_keyword_groups,
+    load_builtin_source_packs,
+    sync_builtin_source_packs,
 )
 from pricewatcher.discovery import (
     build_vendor_search_sources,
@@ -618,6 +620,23 @@ async def settings_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/packs", response_class=HTMLResponse)
+async def packs_page(request: Request) -> HTMLResponse:
+    store: ConfigStore = request.app.state.store
+    settings = store.load_settings()
+    builtin_pack_ids = sorted(load_builtin_source_packs().keys())
+    return templates.TemplateResponse(
+        request,
+        "packs.html",
+        {
+            "request": request,
+            "active_page": "packs",
+            "settings": settings,
+            "builtin_pack_ids": builtin_pack_ids,
+        },
+    )
+
+
 @router.get("/api/watches")
 async def api_list_watches(request: Request) -> JSONResponse:
     store: ConfigStore = request.app.state.store
@@ -843,6 +862,22 @@ async def api_list_source_packs(request: Request) -> JSONResponse:
             "source_packs": {
                 pid: pack.model_dump(mode="json") for pid, pack in settings.source_packs.items()
             }
+        }
+    )
+
+
+@router.post("/api/source-packs/sync")
+async def api_sync_source_packs(request: Request) -> JSONResponse:
+    store: ConfigStore = request.app.state.store
+    packs_added, sources_added, settings = sync_builtin_source_packs(store)
+    return JSONResponse(
+        {
+            "ok": True,
+            "packs_added": packs_added,
+            "sources_added": sources_added,
+            "source_packs": {
+                pid: pack.model_dump(mode="json") for pid, pack in settings.source_packs.items()
+            },
         }
     )
 

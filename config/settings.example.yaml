@@ -36,15 +36,30 @@ notifications:
       name: "Family Deals Group"
       waha_chat_id: "120363000000000000@g.us"
 
-# Reusable source templates selectable when creating a new watch or managing packs in /settings
+# Reusable source templates selectable when creating a new watch or managing packs in /packs
 source_packs:
   universal_deals:
-    label: "Universal Marketplace & Deal Feeds (Any Product)"
-    description: "Craigslist For Sale (DC, Baltimore, NY) + Slickdeals search RSS + Reddit r/deals."
+    label: "General Deals & Black Friday (Any Product)"
+    description: "Slickdeals, DealNews, TechBargains, Ben's Bargains, 9to5Toys, Reddit r/deals & Craigslist."
     sources:
       - name: "Slickdeals ({query})"
         adapter: rss
         url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "Slickdeals Frontpage"
+        adapter: rss
+        url_template: "https://feeds.feedburner.com/SlickdealsnetFP"
+      - name: "DealNews Frontpage"
+        adapter: rss
+        url_template: "https://www.dealnews.com/?rss=1"
+      - name: "TechBargains"
+        adapter: rss
+        url_template: "https://www.techbargains.com/rss.xml"
+      - name: "Ben's Bargains"
+        adapter: rss
+        url_template: "https://bensbargains.com/rss/"
+      - name: "9to5Toys"
+        adapter: rss
+        url_template: "https://9to5toys.com/feed/"
       - name: "Craigslist DC For Sale ({query})"
         adapter: html_css
         url_template: "https://washingtondc.craigslist.org/search/sss?query={query_encoded}"
@@ -81,20 +96,183 @@ source_packs:
         options:
           politeness_delay_seconds: 2.0
 
+  apple_hardware:
+    label: "Apple Hardware & Authorized Resellers"
+    description: "AppleInsider Price Guide, Apple Refurbished, Expercom, DataVision, Abt, Slickdeals, 9to5Mac, 9to5Toys & MacRumors."
+    sources:
+      - name: "AppleInsider Price Guide"
+        adapter: appleinsider
+        url_template: "https://prices.appleinsider.com/"
+      - name: "Apple Refurbished Mac"
+        adapter: json_api
+        url_template: "https://www.apple.com/shop/refurbished/mac"
+        options:
+          mode: apple_refurb
+      - name: "Expercom Search ({query})"
+        adapter: json_api
+        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "DataVision Search ({query})"
+        adapter: json_api
+        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Abt Search ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "9to5Mac"
+        adapter: rss
+        url_template: "https://9to5mac.com/feed/"
+      - name: "9to5Toys"
+        adapter: rss
+        url_template: "https://9to5toys.com/feed/"
+      - name: "MacRumors"
+        adapter: rss
+        url_template: "https://feeds.macrumors.com/MacRumors-All"
+      - name: "Reddit r/appledeals"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/appledeals/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+
+  electronics_tech:
+    label: "PC, Gaming & Electronics"
+    description: "Slickdeals, DealNews (Computers, Electronics, Video Games), 9to5Toys, Abt, DataVision, Expercom, Swappa & Reddit."
+    sources:
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "DealNews Computers"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c39/Computers/?rss=1"
+      - name: "DealNews Electronics"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c142/Electronics/?rss=1"
+      - name: "DealNews Video Games"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c186/Video-Games/?rss=1"
+      - name: "9to5Toys"
+        adapter: rss
+        url_template: "https://9to5toys.com/feed/"
+      - name: "Abt Electronics ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "DataVision Search ({query})"
+        adapter: json_api
+        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Expercom Search ({query})"
+        adapter: json_api
+        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Swappa Marketplace ({query})"
+        adapter: html_css
+        url_template: "https://swappa.com/search?q={query_encoded}"
+        options:
+          item_selector: "div.cell_product"
+          title_selector: "a[href*='/listings/']"
+          price_selector: ":scope"
+          link_selector: "a[href*='/listings/']"
+          default_condition: "used"
+          merchant: "Swappa"
+      - name: "Reddit r/buildapcsales"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/buildapcsales/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+      - name: "Reddit r/LaptopDeals"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/LaptopDeals/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+
+  home_furniture_appliances:
+    label: "TVs, Home & Appliances"
+    description: "Slickdeals, DealNews (TVs, Appliances, Home & Garden), Abt Electronics & Appliances, and Craigslist."
+    sources:
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "DealNews TVs"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c159/TVs/?rss=1"
+      - name: "DealNews Appliances"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c200/Appliances/?rss=1"
+      - name: "DealNews Home & Garden"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c196/Home-Garden/?rss=1"
+      - name: "Abt Search ({query})"
+        adapter: html_css
+        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
+        options:
+          preset: abt_search
+      - name: "Craigslist DC Furniture ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/fua?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist DC Appliances ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/ppa?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+      - name: "Craigslist Baltimore Furniture ({query})"
+        adapter: html_css
+        url_template: "https://baltimore.craigslist.org/search/fua?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist Baltimore"
+
+  tools_diy:
+    label: "Tools, Workshop & DIY"
+    description: "Slickdeals, DealNews Tools, KC Tool, Reddit r/tooldeals & Craigslist Tools."
+    sources:
+      - name: "Slickdeals ({query})"
+        adapter: rss
+        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
+      - name: "DealNews Tools"
+        adapter: rss
+        url_template: "https://www.dealnews.com/c199/Tools/?rss=1"
+      - name: "KC Tool Search ({query})"
+        adapter: json_api
+        url_template: "https://www.kctool.com/search/suggest.json?q={query_encoded}&resources[type]=product"
+      - name: "Reddit r/tooldeals"
+        adapter: rss
+        url_template: "https://www.reddit.com/r/tooldeals/new/.rss"
+        options:
+          politeness_delay_seconds: 2.0
+      - name: "Craigslist DC Tools ({query})"
+        adapter: html_css
+        url_template: "https://washingtondc.craigslist.org/search/tla?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist DC"
+
   automotive_vehicles:
     label: "Cars, Trucks & SUVs (Used & New)"
-    description: "TrueCar dealer inventory ({make}/{model}) + Craigslist Cars & Trucks + Classic.com."
+    description: "Craigslist Cars & Trucks (DC, Baltimore, NY) + Cars.com ({make}/{model}) + Bring a Trailer RSS."
     sources:
-      - name: "TrueCar Used ({query})"
-        adapter: html_css
-        url_template: "https://www.truecar.com/used-cars-for-sale/listings/{make}/{model}/"
-        options:
-          default_condition: "used"
-      - name: "TrueCar New ({query})"
-        adapter: html_css
-        url_template: "https://www.truecar.com/new-cars-for-sale/listings/{make}/{model}/"
-        options:
-          default_condition: "new"
       - name: "Craigslist DC Cars & Trucks ({query})"
         adapter: html_css
         url_template: "https://washingtondc.craigslist.org/search/cta?query={query_encoded}"
@@ -115,27 +293,40 @@ source_packs:
           link_selector: "a[href]"
           default_condition: "used"
           merchant: "Craigslist Baltimore"
+      - name: "Craigslist NY Cars & Trucks ({query})"
+        adapter: html_css
+        url_template: "https://newyork.craigslist.org/search/cta?query={query_encoded}"
+        options:
+          item_selector: "li.cl-static-search-result"
+          title_selector: ".title"
+          price_selector: ".price"
+          link_selector: "a[href]"
+          default_condition: "used"
+          merchant: "Craigslist NY"
+      - name: "Cars.com ({query})"
+        adapter: html_css
+        url_template: "https://www.cars.com/shopping/results/?keyword={query_encoded}&makes[]={make}&models[]={make}-{model}&stock_type=all"
+        options:
+          item_selector: "div.vehicle-card"
+          title_selector: "h2.title"
+          price_selector: "span.primary-price"
+          link_selector: "a.vehicle-card-link"
+          default_condition: "used"
+          merchant: "Cars.com"
+      - name: "Bring a Trailer Auctions RSS"
+        adapter: rss
+        url_template: "https://bringatrailer.com/feed/"
+
+  classic_collector_cars:
+    label: "Classic & Collector Cars (Vintage / Enthusiast)"
+    description: "Classic.com market listings + Craigslist Cars & Trucks + Bring a Trailer Auctions RSS."
+    sources:
       - name: "Classic.com ({query})"
         adapter: html_css
         url_template: "https://www.classic.com/search?q={query_encoded}"
         options:
-          item_selector: "div.border-gray-300.rounded-lg"
-          title_selector: "h3 a[href*='/veh/']"
-          price_selector: ":scope"
-          link_selector: "h3 a[href*='/veh/']"
-          default_condition: "used"
-          merchant: "Classic.com"
-
-  classic_collector_cars:
-    label: "Classic, Vintage & Collector Vehicles"
-    description: "Classic.com collector search + Craigslist regional Cars & Trucks + Bring a Trailer RSS."
-    sources:
-      - name: "Classic.com Collector Search ({query})"
-        adapter: html_css
-        url_template: "https://www.classic.com/search?q={query_encoded}"
-        options:
-          item_selector: "div.border-gray-300.rounded-lg"
-          title_selector: "h3 a[href*='/veh/']"
+          item_selector: "article"
+          title_selector: "h3"
           price_selector: ":scope"
           link_selector: "h3 a[href*='/veh/']"
           default_condition: "used"
@@ -174,107 +365,9 @@ source_packs:
         adapter: rss
         url_template: "https://bringatrailer.com/feed/"
 
-  apple_hardware:
-    label: "Apple Hardware & Authorized Resellers"
-    description: "Apple Certified Refurbished, Expercom, DataVision, Abt, and Apple deal RSS."
-    sources:
-      - name: "Expercom Search ({query})"
-        adapter: json_api
-        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
-      - name: "DataVision Search ({query})"
-        adapter: json_api
-        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
-      - name: "Abt Search ({query})"
-        adapter: html_css
-        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
-        options:
-          preset: abt_search
-      - name: "Apple Refurbished Mac"
-        adapter: json_api
-        url_template: "https://www.apple.com/shop/refurbished/mac"
-        options:
-          mode: apple_refurb
-      - name: "Reddit r/appledeals"
-        adapter: rss
-        url_template: "https://www.reddit.com/r/appledeals/new/.rss"
-        options:
-          politeness_delay_seconds: 2.0
-
-  electronics_tech:
-    label: "Phones, Computers, Cameras & Tech"
-    description: "Abt Electronics + Swappa Marketplace + DataVision + Expercom + Slickdeals."
-    sources:
-      - name: "Abt Electronics ({query})"
-        adapter: html_css
-        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
-        options:
-          preset: abt_search
-      - name: "Swappa Marketplace ({query})"
-        adapter: html_css
-        url_template: "https://swappa.com/search?q={query_encoded}"
-        options:
-          item_selector: "div.cell_product"
-          title_selector: "a[href*='/listings/']"
-          price_selector: ":scope"
-          link_selector: "a[href*='/listings/']"
-          default_condition: "used"
-          merchant: "Swappa"
-      - name: "DataVision Search ({query})"
-        adapter: json_api
-        url_template: "https://datavision.com/search/suggest.json?q={query_encoded}&resources[type]=product"
-      - name: "Expercom Search ({query})"
-        adapter: json_api
-        url_template: "https://expercom.com/search/suggest.json?q={query_encoded}&resources[type]=product"
-      - name: "Slickdeals ({query})"
-        adapter: rss
-        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
-
-  home_furniture_appliances:
-    label: "Home, Office Furniture & Appliances"
-    description: "Abt Appliances & Home + Craigslist Furniture (DC & Baltimore) + Craigslist Appliances + Slickdeals."
-    sources:
-      - name: "Abt Appliances & Home ({query})"
-        adapter: html_css
-        url_template: "https://www.abt.com/resources/pages/search.php?keywords={query_encoded}"
-        options:
-          preset: abt_search
-      - name: "Craigslist DC Furniture ({query})"
-        adapter: html_css
-        url_template: "https://washingtondc.craigslist.org/search/fua?query={query_encoded}"
-        options:
-          item_selector: "li.cl-static-search-result"
-          title_selector: ".title"
-          price_selector: ".price"
-          link_selector: "a[href]"
-          default_condition: "used"
-          merchant: "Craigslist DC"
-      - name: "Craigslist DC Appliances ({query})"
-        adapter: html_css
-        url_template: "https://washingtondc.craigslist.org/search/ppa?query={query_encoded}"
-        options:
-          item_selector: "li.cl-static-search-result"
-          title_selector: ".title"
-          price_selector: ".price"
-          link_selector: "a[href]"
-          default_condition: "used"
-          merchant: "Craigslist DC"
-      - name: "Craigslist Baltimore Furniture ({query})"
-        adapter: html_css
-        url_template: "https://baltimore.craigslist.org/search/fua?query={query_encoded}"
-        options:
-          item_selector: "li.cl-static-search-result"
-          title_selector: ".title"
-          price_selector: ".price"
-          link_selector: "a[href]"
-          default_condition: "used"
-          merchant: "Craigslist Baltimore"
-      - name: "Slickdeals ({query})"
-        adapter: rss
-        url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"
-
   bikes_outdoor_sports:
-    label: "Bicycles, E-Bikes & Sporting Goods"
-    description: "Craigslist Bicycles (DC & Baltimore) + Craigslist Sporting Goods + Slickdeals."
+    label: "Bicycles, Outdoor & Sports Gear"
+    description: "Craigslist Bicycles (DC, Baltimore, NY) + Slickdeals Outdoor/Sports RSS."
     sources:
       - name: "Craigslist DC Bicycles ({query})"
         adapter: html_css
@@ -296,16 +389,16 @@ source_packs:
           link_selector: "a[href]"
           default_condition: "used"
           merchant: "Craigslist Baltimore"
-      - name: "Craigslist DC Sporting Goods ({query})"
+      - name: "Craigslist NY Bicycles ({query})"
         adapter: html_css
-        url_template: "https://washingtondc.craigslist.org/search/sga?query={query_encoded}"
+        url_template: "https://newyork.craigslist.org/search/bia?query={query_encoded}"
         options:
           item_selector: "li.cl-static-search-result"
           title_selector: ".title"
           price_selector: ".price"
           link_selector: "a[href]"
           default_condition: "used"
-          merchant: "Craigslist DC"
+          merchant: "Craigslist NY"
       - name: "Slickdeals ({query})"
         adapter: rss
         url_template: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={query_encoded}"

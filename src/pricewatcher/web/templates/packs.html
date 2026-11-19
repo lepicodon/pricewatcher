@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Source Packs &amp; Discovery · PriceWatcher{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Source Packs &amp; Discovery</h1>
+    <p class="muted mb-0">
+      Manage curated category packs, sync built-in updates, and live-probe new deal feeds or stores to enrich your packs over time.
+    </p>
+  </div>
+  <div class="actions-row">
+    <button type="button" id="sync-builtin-packs-btn" class="btn btn-sm">Sync Built-in Packs</button>
+    <button type="button" id="new-pack-btn" class="btn btn-primary btn-sm">+ New Source Pack</button>
+  </div>
+</section>
+
+<p id="sync-packs-status" class="muted mb-md" aria-live="polite"></p>
+
+<section class="card stack-sm mb-lg" id="pack-probe-section">
+  <div class="card-header">
+    <div>
+      <h2>Discover &amp; Probe New Source</h2>
+      <p class="muted mb-0">
+        Test any RSS feed, Shopify <code>/suggest.json</code> or <code>/products.json</code> endpoint, or HTML page before adding it to a pack.
+      </p>
+    </div>
+  </div>
+  <div class="actions-row">
+    <input
+      type="url"
+      id="pack-probe-url"
+      class="flex-1"
+      placeholder="https://example.com/deals.rss or https://store.com/search/suggest.json?q={query_encoded}&amp;resources[type]=product"
+      aria-label="Source URL to probe"
+    >
+    <button type="button" id="pack-probe-btn" class="btn btn-primary btn-sm">Probe URL</button>
+  </div>
+  <div id="pack-probe-result" class="stack-xs" hidden></div>
+</section>
+
+<section class="stack-md" id="source-packs-section">
+  <div class="section-head">
+    <div>
+      <h2>Category Source Packs</h2>
+      <p class="muted">
+        Stored in <code>config/settings.yaml</code>. Supports <code>{query}</code>, <code>{query_encoded}</code>, <code>{make}</code>, and <code>{model}</code> placeholders.
+      </p>
+    </div>
+  </div>
+
+  <div id="new-pack-form-wrap" class="card stack-sm" hidden>
+    <h3>Create New Source Pack</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="new-pack-id">Pack ID (slug)</label>
+        <input type="text" id="new-pack-id" placeholder="e.g. watches_luxury">
+      </div>
+      <div class="form-group">
+        <label for="new-pack-label">Display Label</label>
+        <input type="text" id="new-pack-label" placeholder="e.g. Watches &amp; Collectibles">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="new-pack-desc">Description</label>
+      <input type="text" id="new-pack-desc" placeholder="Curated vendors for this product category">
+    </div>
+    <div class="actions-row">
+      <button type="button" id="create-pack-confirm-btn" class="btn btn-primary btn-sm">Create Empty Pack</button>
+      <button type="button" id="create-pack-cancel-btn" class="btn btn-sm">Cancel</button>
+      <span id="new-pack-status" class="muted" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="source-packs-tabs" class="pack-tabs" role="tablist" aria-label="Source packs">
+    {% for pack_id, pack in settings.source_packs.items() %}
+    <button
+      type="button"
+      class="pack-tab"
+      role="tab"
+      id="pack-tab-{{ pack_id }}"
+      aria-controls="pack-panel-{{ pack_id }}"
+      aria-selected="{{ 'true' if loop.first else 'false' }}"
+      data-pack-tab="{{ pack_id }}"
+    >
+      <span>{{ pack.label }}</span>
+      <span class="pack-tab-count">{{ pack.sources | length }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <div id="source-packs-list" class="stack-md">
+    {% for pack_id, pack in settings.source_packs.items() %}
+    <article
+      class="card stack-sm"
+      role="tabpanel"
+      id="pack-panel-{{ pack_id }}"
+      aria-labelledby="pack-tab-{{ pack_id }}"
+      data-pack-card
+      data-pack-id="{{ pack_id }}"
+      {% if not loop.first %}hidden{% endif %}
+    >
+      <div class="card-header">
+        <div>
+          <h3>
+            {{ pack.label }} <code>{{ pack_id }}</code>
+            {% if pack_id in builtin_pack_ids %}
+            <span class="badge badge-neutral">Built-in</span>
+            {% endif %}
+          </h3>
+          <p class="muted mb-0">{{ pack.description or "No description" }}</p>
+        </div>
+        <div class="actions-row actions-nowrap">
+          <button type="button" class="btn btn-sm btn-icon" data-add-pack-source aria-label="Add vendor to {{ pack.label }}" title="Add vendor to pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm btn-icon" data-save-pack aria-label="Save {{ pack.label }}" title="Save pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-icon" data-delete-pack aria-label="Delete {{ pack.label }}" title="Delete pack">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6M14 11v6"></path>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group mb-xs">
+          <label for="pack-label-{{ pack_id }}">Pack Label</label>
+          <input type="text" id="pack-label-{{ pack_id }}" data-pack-label value="{{ pack.label }}" required>
+        </div>
+        <div class="form-group mb-xs">
+          <label for="pack-desc-{{ pack_id }}">Description</label>
+          <input type="text" id="pack-desc-{{ pack_id }}" data-pack-description value="{{ pack.description }}">
+        </div>
+        <div class="form-group mb-xs">
+          <label for="pack-query-{{ pack_id }}">Sample Test Query</label>
+          <input
+            type="text"
+            id="pack-query-{{ pack_id }}"
+            data-pack-test-query
+            placeholder="Sample item to test pack, e.g. Toyota Tundra"
+            value="{% if 'automotive' in pack_id %}Toyota Tundra{% elif 'classic' in pack_id %}Volkswagen Kombi{% elif 'electronics' in pack_id %}RTX 5080{% elif 'tools' in pack_id %}DeWalt Drill{% elif 'home' in pack_id %}LG OLED TV{% elif 'bikes' in pack_id %}Trek Bike{% else %}Mac Studio{% endif %}"
+          >
+        </div>
+      </div>
+
+      <div class="stack-sm" data-pack-sources>
+        {% for tmpl in pack.sources %}
+        <div class="pack-source-row" data-pack-source-row>
+          <div>
+            <label for="psrc-name-{{ pack_id }}-{{ loop.index0 }}">Vendor Name Template</label>
+            <input type="text" id="psrc-name-{{ pack_id }}-{{ loop.index0 }}" data-psrc-name value="{{ tmpl.name }}" required>
+          </div>
+          <div>
+            <label for="psrc-adapter-{{ pack_id }}-{{ loop.index0 }}">Adapter</label>
+            <select id="psrc-adapter-{{ pack_id }}-{{ loop.index0 }}" data-psrc-adapter>
+              {% for ad in ["rss", "json_api", "html_css", "appleinsider"] %}
+              <option value="{{ ad }}" {% if tmpl.adapter == ad %}selected{% endif %}>{{ ad }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="psrc-url-{{ pack_id }}-{{ loop.index0 }}">URL Template</label>
+            <input type="text" id="psrc-url-{{ pack_id }}-{{ loop.index0 }}" data-psrc-url value="{{ tmpl.url_template }}" required>
+          </div>
+          <div>
+            <label for="psrc-opts-{{ pack_id }}-{{ loop.index0 }}">Options JSON</label>
+            <input type="text" id="psrc-opts-{{ pack_id }}-{{ loop.index0 }}" data-psrc-options value='{{ tmpl.options | tojson }}'>
+          </div>
+          <div class="actions-row actions-nowrap">
+            <button type="button" class="btn btn-sm btn-icon" data-test-pack-source aria-label="Test {{ tmpl.name }}" title="Test source">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="6 4 20 12 6 20 6 4"></polygon>
+              </svg>
+            </button>
+            <button type="button" class="btn btn-sm btn-icon btn-danger" data-remove-pack-source aria-label="Remove {{ tmpl.name }}" title="Remove vendor">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6M14 11v6"></path>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="pack-source-test-result muted" data-psrc-test-output aria-live="polite"></div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <p class="muted mb-0" data-pack-status aria-live="polite"></p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

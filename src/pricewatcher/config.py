@@ -689,3 +689,47 @@ class ConfigStore:
             self._watches_cache = None
             self._watch_file_cache.pop(watch_id, None)
             return deleted
+
+
+def load_builtin_source_packs() -> dict[str, SourcePackConfig]:
+    """Load the curated built-in source packs bundled with the package."""
+    packs_path = Path(__file__).with_name("builtin_packs.yaml")
+    if not packs_path.exists():
+        return {}
+    raw = yaml.safe_load(packs_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        return {}
+    packs: dict[str, SourcePackConfig] = {}
+    for pack_id, pack_raw in raw.items():
+        if isinstance(pack_raw, dict):
+            packs[str(pack_id)] = SourcePackConfig.model_validate(pack_raw)
+    return packs
+
+
+def sync_builtin_source_packs(store: ConfigStore) -> tuple[list[str], int, SettingsConfig]:
+    """Non-destructively merge built-in packs and new sources into settings.yaml."""
+    builtin_packs = load_builtin_source_packs()
+    settings = store.load_settings()
+    packs_added: list[str] = []
+    sources_added = 0
+
+    for pack_id, builtin_pack in builtin_packs.items():
+        existing = settings.source_packs.get(pack_id)
+        if existing is None:
+            settings.source_packs[pack_id] = builtin_pack.model_copy(deep=True)
+            packs_added.append(pack_id)
+            sources_added += len(builtin_pack.sources)
+            continue
+
+        seen_urls = {src.url_template.strip().lower() for src in existing.sources}
+        for src in builtin_pack.sources:
+            key = src.url_template.strip().lower()
+            if key not in seen_urls:
+                existing.sources.append(src.model_copy(deep=True))
+                seen_urls.add(key)
+                sources_added += 1
+
+    if packs_added or sources_added > 0:
+        store.save_settings(settings)
+
+    return packs_added, sources_added, settings

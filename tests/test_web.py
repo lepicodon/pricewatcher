@@ -441,6 +441,17 @@ def test_source_pack_crud_test_source_and_volkswagen_combi_synonyms(
         assert settings_page.status_code == 200
         assert "source-packs-section" in settings_page.text
 
+        packs_page = client.get("/packs")
+        assert packs_page.status_code == 200
+        assert "source-packs-list" in packs_page.text
+        assert "sync-builtin-packs-btn" in packs_page.text
+        assert "pack-probe-section" in packs_page.text
+        assert "tools_diy" in packs_page.text
+
+        sync_resp = client.post("/api/source-packs/sync", headers=csrf_headers)
+        assert sync_resp.status_code == 200
+        assert sync_resp.json()["ok"] is True
+
         # Create/save a custom source pack
         save_resp = client.post(
             "/api/source-packs/audio_hifi",

@@ -325,3 +325,58 @@ def test_source_template_make_model_render_and_save_settings(tmp_path: Path) -> 
     assert "custom_test" in reloaded.source_packs
     assert reloaded.source_packs["custom_test"].label == "Custom Test Pack"
     assert not list(cfg_dir.glob("*.tmp"))
+
+
+def test_builtin_packs_match_example_and_sync_non_destructively(tmp_path: Path) -> None:
+    from pricewatcher.config import (
+        SettingsConfig,
+        load_builtin_source_packs,
+        sync_builtin_source_packs,
+    )
+
+    builtin = load_builtin_source_packs()
+    for key in (
+        "universal_deals",
+        "apple_hardware",
+        "electronics_tech",
+        "home_furniture_appliances",
+        "tools_diy",
+        "automotive_vehicles",
+        "classic_collector_cars",
+        "bikes_outdoor_sports",
+    ):
+        assert key in builtin
+
+    import yaml
+
+    raw_example = yaml.safe_load(Path("config/settings.example.yaml").read_text(encoding="utf-8"))
+    example_settings = SettingsConfig.model_validate(raw_example)
+    assert set(builtin.keys()) == set(example_settings.source_packs.keys())
+    for pack_id, pack in builtin.items():
+        assert pack.model_dump(mode="json") == example_settings.source_packs[pack_id].model_dump(
+            mode="json"
+        )
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    store = ConfigStore(cfg_dir)
+    initial = SettingsConfig(
+        source_packs={
+            "custom_only": SourcePackConfig(label="Custom Only", description="Keep me", sources=[]),
+            "universal_deals": SourcePackConfig(
+                label="Universal",
+                description="Partial",
+                sources=[builtin["universal_deals"].sources[0].model_copy(deep=True)],
+            ),
+        }
+    )
+    store.save_settings(initial)
+
+    packs_added, sources_added, synced = sync_builtin_source_packs(store)
+    assert "tools_diy" in packs_added
+    assert "apple_hardware" in packs_added
+    assert sources_added > 0
+    assert "custom_only" in synced.source_packs
+    assert len(synced.source_packs["universal_deals"].sources) == len(
+        builtin["universal_deals"].sources
+    )
