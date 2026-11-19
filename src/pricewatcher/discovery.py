@@ -496,6 +496,7 @@ def build_vendor_search_sources(
             "https://slickdeals.net/newsearch.php"
             f"?mode=frontpage&searcharea=deals&searchin=first&rss=1&q={encoded_core}"
         ),
+        options={"max_age_days": 7},
     )
 
     vehicle = detect_vehicle_make_model(clean)

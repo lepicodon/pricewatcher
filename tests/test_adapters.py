@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pricewatcher.adapters.appleinsider import parse_appleinsider_html
@@ -294,3 +295,66 @@ def test_abt_and_sanitize_listing_url_filters_unsafe_hrefs() -> None:
     abt_listings = parse_html_css(abt_html, abt_src)
     assert len(abt_listings) == 1
     assert abt_listings[0].url == ""
+
+
+def test_slickdeals_rss_filters_stale_and_expired_deals() -> None:
+    xml_text = (FIXTURES_DIR / "slickdeals_rss_search_mac_studio.xml").read_text(encoding="utf-8")
+    ref_now = datetime(2026, 11, 10, 0, 0, tzinfo=UTC)
+
+    # Default Slickdeals max_age_days=7 filters out Oct/Sep/Jun entries, keeping Nov 6 and Nov 4
+    sd_src = SourceConfig(
+        name="Slickdeals (Mac Studio)",
+        adapter="rss",
+        url="https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1&q=Mac+Studio",
+    )
+    recent = parse_rss_feed(xml_text, sd_src, now=ref_now)
+    assert len(recent) == 2
+    assert all(
+        item.raw_specs["published_at"].startswith(("2026-11-06", "2026-11-04"))
+        for item in recent
+    )
+
+    # Disabling max_age_days with 0 returns all entries in the fixture
+    sd_unbounded = sd_src.model_copy(update={"options": {"max_age_days": 0}})
+    all_items = parse_rss_feed(xml_text, sd_unbounded, now=ref_now)
+    assert len(all_items) > len(recent)
+
+    # Non-Slickdeals RSS sources do not filter by age unless max_age_days is explicitly set
+    other_src = SourceConfig(
+        name="Other RSS",
+        adapter="rss",
+        url="https://deals.example.com/rss",
+    )
+    assert len(parse_rss_feed(xml_text, other_src, now=ref_now)) == len(all_items)
+
+    # Explicit expired/OOS markers
+    status_xml = """<?xml version="1.0"?>
+    <rss version="2.0"><channel><title>Deals</title>
+      <item>
+        <title>[Expired] 16TB Hard Drive $189.99</title>
+        <link>https://slickdeals.net/f/1</link>
+        <pubDate>Tue, 10 Nov 2026 00:00:00 +0000</pubDate>
+      </item>
+      <item>
+        <title>16TB Hard Drive $199.99</title>
+        <link>https://slickdeals.net/f/2</link>
+        <category>Expired</category>
+        <pubDate>Tue, 10 Nov 2026 00:00:00 +0000</pubDate>
+      </item>
+      <item>
+        <title>16TB Hard Drive $209.99 (Out of Stock)</title>
+        <link>https://slickdeals.net/f/3</link>
+        <pubDate>Tue, 10 Nov 2026 00:00:00 +0000</pubDate>
+      </item>
+      <item>
+        <title>16TB Hard Drive $219.99 at Newegg</title>
+        <link>https://slickdeals.net/f/4</link>
+        <pubDate>Tue, 10 Nov 2026 00:00:00 +0000</pubDate>
+      </item>
+    </channel></rss>"""
+    filtered = parse_rss_feed(status_xml, sd_src, now=ref_now)
+    assert len(filtered) == 2
+    assert filtered[0].price == 209.99
+    assert filtered[0].in_stock is False
+    assert filtered[1].price == 219.99
+    assert filtered[1].in_stock is True
