@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import time
@@ -32,7 +32,7 @@ import pricewatcher.http_client as http_client_module
 from pricewatcher.main import create_app, scheduler_loop
 from pricewatcher.notifiers.base import NotificationDispatcher
 from pricewatcher.notifiers.waha import ChannelSendResult
-from pricewatcher.storage import SCHEMA_VERSION, Database
+from pricewatcher.storage import SCHEMA_VERSION, Database, _normalize_utc_iso
 
 
 class FakeAdapter:
@@ -411,6 +411,11 @@ def test_schema_v1_to_v2_migration_and_backfill(tmp_path: Path) -> None:
         ).fetchone()
         assert idx is not None
 
+        idx_seen = db._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_obs_watch_seen'"
+        ).fetchone()
+        assert idx_seen is not None
+
         obs = db.get_observations("mac-studio")
         assert len(obs) == 1
         assert obs[0]["last_seen_at"] == "2026-11-01T10:00:00+00:00"
@@ -713,6 +718,417 @@ def test_dashboard_summary_accuracy_and_batching(tmp_path: Path) -> None:
         assert w1["source_health"]["error"] == 1
         assert len(summary_3["recent_alerts"]) == 2
         assert summary_3["recent_alerts"][0]["watch_id"] == "w2"
+    finally:
+        db.close()
+
+
+def test_utc_iso_normalization_and_startup_backfill(tmp_path: Path) -> None:
+    assert _normalize_utc_iso("2026-11-10T07:00:00-05:00") == "2026-11-10T12:00:00+00:00"
+    assert _normalize_utc_iso("2026-11-10T12:00:00Z") == "2026-11-10T12:00:00+00:00"
+    assert _normalize_utc_iso("2026-11-10T12:00:00") == "2026-11-10T12:00:00+00:00"
+    assert _normalize_utc_iso("not-a-timestamp") == "not-a-timestamp"
+    assert _normalize_utc_iso(None).endswith("+00:00")
+    assert _normalize_utc_iso("").endswith("+00:00")
+
+    db = Database(tmp_path / "norm.db")
+    try:
+        obs_id = db.upsert_observation(
+            watch_id="w1",
+            tier_key="64GB",
+            source_name="S1",
+            merchant="M1",
+            title="Item",
+            url="https://example.com/1",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at="2026-11-10T07:00:00-05:00",
+        )
+        # Same price/stock 1h later using 'Z' suffix deduplicates and normalizes last_seen_at
+        dedup_id = db.upsert_observation(
+            watch_id="w1",
+            tier_key="64GB",
+            source_name="S1",
+            merchant="M1",
+            title="Item",
+            url="https://example.com/1",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at="2026-11-10T13:00:00Z",
+        )
+        assert dedup_id == obs_id
+        rows = db.get_observations("w1")
+        assert len(rows) == 1
+        assert rows[0]["observed_at"] == "2026-11-10T12:00:00+00:00"
+        assert rows[0]["last_seen_at"] == "2026-11-10T13:00:00+00:00"
+
+        db.upsert_tier_seen(
+            watch_id="w1",
+            tier_key="64GB",
+            best_price=100.0,
+            best_merchant="M1",
+            best_url="https://example.com/1",
+            best_title="Item",
+            best_promo_code=None,
+            seen_at="2026-11-10T07:00:00-05:00",
+        )
+        db.mark_tier_alerted(
+            watch_id="w1",
+            tier_key="64GB",
+            alerted_price=100.0,
+            alerted_at="2026-11-10T12:00:00Z",
+        )
+        tier = db.get_tier_state("w1", "64GB")
+        assert tier is not None
+        assert tier["last_seen_at"] == "2026-11-10T12:00:00+00:00"
+        assert tier["last_alerted_at"] == "2026-11-10T12:00:00+00:00"
+
+        db.upsert_source_health(
+            watch_id="w1",
+            source_name="S1",
+            url="https://example.com/1",
+            http_status=200,
+            item_count=1,
+            matched_count=1,
+            latency_ms=10,
+            last_error=None,
+            checked_at="2026-11-10T08:00:00-04:00",
+        )
+        assert db.get_source_health("w1")[0]["last_checked_at"] == "2026-11-10T12:00:00+00:00"
+
+        db.record_alert(
+            watch_id="w1",
+            tier_key="64GB",
+            alert_type="new_low",
+            recipient="primary",
+            channel="waha",
+            price=100.0,
+            merchant="M1",
+            message="hi",
+            status="sent",
+            created_at="2026-11-10T14:00:00+02:00",
+        )
+        assert db.get_alerts("w1")[0]["created_at"] == "2026-11-10T12:00:00+00:00"
+
+        db.update_watch_runtime(
+            watch_id="w1",
+            last_run_at="2026-11-10T07:00:00-05:00",
+            last_status="ok",
+        )
+        rt = db.get_watch_runtime("w1")
+        assert rt is not None
+        assert rt["last_run_at"] == "2026-11-10T12:00:00+00:00"
+
+        # Simulate pre-existing v2 DB rows with non-canonical timestamps (Z, offset, naive)
+        db._conn.execute(
+            """
+            INSERT INTO observations (
+                watch_id, tier_key, source_name, merchant, title, url,
+                price, currency, condition, in_stock, promo_code, specs_json,
+                observed_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "w_raw",
+                "t1",
+                "S1",
+                "M1",
+                "Raw Z",
+                "https://example.com/raw1",
+                200.0,
+                "USD",
+                "new",
+                1,
+                None,
+                "{}",
+                "2026-11-10T12:00:00Z",
+                "2026-11-10T08:00:00-05:00",
+            ),
+        )
+        db._conn.execute(
+            """
+            INSERT INTO observations (
+                watch_id, tier_key, source_name, merchant, title, url,
+                price, currency, condition, in_stock, promo_code, specs_json,
+                observed_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "w_raw",
+                "t1",
+                "S1",
+                "M1",
+                "Raw naive",
+                "https://example.com/raw2",
+                210.0,
+                "USD",
+                "new",
+                1,
+                None,
+                "{}",
+                "2026-11-10T15:00:00",
+                None,
+            ),
+        )
+        db._conn.commit()
+    finally:
+        db.close()
+
+    # Re-opening normalizes non-canonical observation timestamps on startup
+    db2 = Database(tmp_path / "norm.db")
+    try:
+        raw_rows = {r["url"]: r for r in db2.get_observations("w_raw")}
+        assert raw_rows["https://example.com/raw1"]["observed_at"] == "2026-11-10T12:00:00+00:00"
+        assert raw_rows["https://example.com/raw1"]["last_seen_at"] == "2026-11-10T13:00:00+00:00"
+        assert raw_rows["https://example.com/raw2"]["observed_at"] == "2026-11-10T15:00:00+00:00"
+        assert raw_rows["https://example.com/raw2"]["last_seen_at"] is None
+    finally:
+        db2.close()
+
+    # Legacy v1 DB with non-canonical observed_at normalizes during v1 -> v2 migration
+    legacy_path = tmp_path / "legacy_tz_v1.db"
+    conn = sqlite3.connect(str(legacy_path))
+    conn.executescript(
+        """
+        CREATE TABLE observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            watch_id TEXT NOT NULL,
+            tier_key TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            merchant TEXT NOT NULL,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            price REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            condition TEXT NOT NULL DEFAULT 'new',
+            in_stock INTEGER NOT NULL DEFAULT 1,
+            promo_code TEXT,
+            specs_json TEXT NOT NULL DEFAULT '{}',
+            observed_at TEXT NOT NULL
+        );
+        INSERT INTO observations (
+            watch_id, tier_key, source_name, merchant, title, url,
+            price, currency, condition, in_stock, promo_code, specs_json, observed_at
+        ) VALUES (
+            'w1', 't1', 'S1', 'M1', 'Old TZ', 'https://example.com/legacy',
+            300.0, 'USD', 'new', 1, NULL, '{}', '2026-11-01T07:00:00-05:00'
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    db3 = Database(legacy_path)
+    try:
+        migrated = db3.get_observations("w1")
+        assert len(migrated) == 1
+        assert migrated[0]["observed_at"] == "2026-11-01T12:00:00+00:00"
+        assert migrated[0]["last_seen_at"] == "2026-11-01T12:00:00+00:00"
+    finally:
+        db3.close()
+
+
+def test_time_range_queries_use_index_and_string_comparisons(tmp_path: Path) -> None:
+    db = Database(tmp_path / "range_idx.db")
+    try:
+        tz_minus5 = timezone(timedelta(hours=-5))
+        tz_plus5 = timezone(timedelta(hours=5))
+        now = datetime.now(UTC)
+
+        # Populate realistic multi-watch data across several days
+        for wid in ("w1", "w2", "w3"):
+            for day_offset in range(15):
+                ts = (now - timedelta(days=day_offset, hours=2)).isoformat()
+                db.upsert_observation(
+                    watch_id=wid,
+                    tier_key="64GB",
+                    source_name=f"S{day_offset}",
+                    merchant=f"M{day_offset}",
+                    title=f"Mac {day_offset}",
+                    url=f"https://example.com/{wid}/{day_offset}",
+                    price=3000.0 + day_offset,
+                    currency="USD",
+                    condition="new",
+                    in_stock=True,
+                    promo_code=None,
+                    specs={},
+                    observed_at=ts,
+                )
+
+        def assert_queries_use_index(watch_ids: list[str]) -> None:
+            traced: list[str] = []
+            db._conn.set_trace_callback(traced.append)
+            try:
+                db.get_dashboard_summary(watch_ids, history_days=7, alert_limit=5)
+            finally:
+                db._conn.set_trace_callback(None)
+
+            spark_sql = next(s for s in traced if "MIN(price) AS min_price" in s)
+            latest_sql = next(s for s in traced if "ROW_NUMBER() OVER" in s)
+
+            spark_plan = [
+                " ".join(str(c) for c in row)
+                for row in db._conn.execute(f"EXPLAIN QUERY PLAN {spark_sql}").fetchall()
+            ]
+            latest_plan = [
+                " ".join(str(c) for c in row)
+                for row in db._conn.execute(f"EXPLAIN QUERY PLAN {latest_sql}").fetchall()
+            ]
+            assert any("idx_obs_watch_seen" in line for line in spark_plan), spark_plan
+            assert any("idx_obs_watch_seen" in line for line in latest_plan), latest_plan
+
+        # Check EXPLAIN QUERY PLAN for both single-watch and multi-watch, before & after ANALYZE
+        assert_queries_use_index(["w1"])
+        assert_queries_use_index(["w1", "w2", "w3"])
+        db._conn.execute("ANALYZE")
+        assert_queries_use_index(["w1"])
+        assert_queries_use_index(["w1", "w2", "w3"])
+
+        # Sparkline range filtering accuracy across timezone boundaries (history_days=7)
+        spark_cutoff = now - timedelta(days=7)
+        t_in = (spark_cutoff + timedelta(hours=1)).astimezone(tz_minus5)
+        t_out = (spark_cutoff - timedelta(hours=1)).astimezone(tz_plus5)
+        t_latest = (now + timedelta(minutes=5)).astimezone(tz_minus5)
+
+        db.upsert_observation(
+            watch_id="w_tz",
+            tier_key="64GB",
+            source_name="S_in",
+            merchant="M_in",
+            title="Inside Window",
+            url="https://example.com/in",
+            price=111.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=t_in.isoformat(),
+        )
+        db.upsert_observation(
+            watch_id="w_tz",
+            tier_key="64GB",
+            source_name="S_out",
+            merchant="M_out",
+            title="Outside Window",
+            url="https://example.com/out",
+            price=50.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=t_out.isoformat(),
+        )
+        db.upsert_observation(
+            watch_id="w_tz",
+            tier_key="64GB",
+            source_name="S_latest",
+            merchant="M_latest",
+            title="Latest (-05:00)",
+            url="https://example.com/latest",
+            price=222.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=t_latest.isoformat(),
+        )
+
+        dash = db.get_dashboard_summary(["w_tz"], history_days=7, alert_limit=5)["watches"]["w_tz"]
+        spark_points = [(pt["day"], pt["min_price"]) for pt in dash["sparkline"]]
+        assert (t_in.astimezone(UTC).date().isoformat(), 111.0) in spark_points
+        assert all(price != 50.0 for _, price in spark_points)
+        assert dash["latest_observation"]["url"] == "https://example.com/latest"
+
+        # Retention pruning accuracy with direct string comparisons across timezones
+        prune_cutoff = now - timedelta(days=30)
+        prune_keep = (prune_cutoff + timedelta(hours=1)).astimezone(tz_minus5)
+        prune_drop_plus5 = (prune_cutoff - timedelta(hours=1)).astimezone(tz_plus5)
+        prune_drop_z = (prune_cutoff - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        db.upsert_observation(
+            watch_id="w_prune",
+            tier_key="default",
+            source_name="S_keep",
+            merchant="M1",
+            title="Keep",
+            url="https://example.com/keep",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=prune_keep.isoformat(),
+        )
+        db.upsert_observation(
+            watch_id="w_prune",
+            tier_key="default",
+            source_name="S_drop_tz",
+            merchant="M2",
+            title="Drop +05",
+            url="https://example.com/drop_tz",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=prune_drop_plus5.isoformat(),
+        )
+        db.upsert_observation(
+            watch_id="w_prune",
+            tier_key="default",
+            source_name="S_drop_z",
+            merchant="M3",
+            title="Drop Z",
+            url="https://example.com/drop_z",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=prune_drop_z,
+        )
+        # Old observed_at but recent last_seen_at in -05:00 must be kept
+        active_id = db.upsert_observation(
+            watch_id="w_prune",
+            tier_key="default",
+            source_name="S_active",
+            merchant="M4",
+            title="Still Seen",
+            url="https://example.com/still_seen",
+            price=100.0,
+            currency="USD",
+            condition="new",
+            in_stock=True,
+            promo_code=None,
+            specs={},
+            observed_at=(now - timedelta(days=60)).isoformat(),
+        )
+        recent_seen = _normalize_utc_iso(
+            (now - timedelta(days=5)).astimezone(tz_minus5).isoformat()
+        )
+        db._conn.execute(
+            "UPDATE observations SET last_seen_at = ? WHERE id = ?",
+            (recent_seen, active_id),
+        )
+        db._conn.commit()
+
+        deleted = db.prune_old_observations(retention_days=30)
+        assert deleted == 2
+        remaining = {r["url"] for r in db.get_observations("w_prune")}
+        assert remaining == {"https://example.com/keep", "https://example.com/still_seen"}
     finally:
         db.close()
 

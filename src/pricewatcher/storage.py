@@ -31,6 +31,15 @@ def _parse_iso(ts: str | None) -> datetime | None:
         return None
 
 
+def _normalize_utc_iso(ts: str | None) -> str:
+    if not ts:
+        return _utcnow_iso()
+    dt = _parse_iso(ts)
+    if dt is None:
+        return ts
+    return dt.astimezone(UTC).isoformat()
+
+
 class Database:
     """Thread-safe SQLite storage backend."""
 
@@ -238,7 +247,56 @@ class Database:
                 )
                 cur.execute(f"PRAGMA user_version = {SCHEMA_VERSION};")
 
+            self._normalize_observation_timestamps(cur)
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_obs_watch_seen
+                    ON observations (watch_id, COALESCE(last_seen_at, observed_at));
+                """
+            )
+
             self._conn.commit()
+
+    @staticmethod
+    def _normalize_observation_timestamps(cur: sqlite3.Cursor) -> None:
+        canon_sec = (
+            "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]+00:00"
+        )
+        canon_us = (
+            "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
+            "T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00"
+        )
+        rows = cur.execute(
+            """
+            SELECT id, observed_at, last_seen_at
+            FROM observations
+            WHERE (observed_at NOT GLOB ? AND observed_at NOT GLOB ?)
+               OR (
+                   last_seen_at IS NOT NULL
+                   AND last_seen_at NOT GLOB ?
+                   AND last_seen_at NOT GLOB ?
+               )
+            """,
+            (canon_sec, canon_us, canon_sec, canon_us),
+        ).fetchall()
+        updates: list[tuple[str, str | None, int]] = []
+        for row in rows:
+            obs_raw = str(row["observed_at"])
+            seen_raw = row["last_seen_at"]
+            obs_norm = _normalize_utc_iso(obs_raw)
+            if seen_raw is None:
+                seen_norm = None
+            elif seen_raw == "":
+                seen_norm = obs_norm
+            else:
+                seen_norm = _normalize_utc_iso(str(seen_raw))
+            if obs_norm != obs_raw or seen_norm != seen_raw:
+                updates.append((obs_norm, seen_norm, int(row["id"])))
+        if updates:
+            cur.executemany(
+                "UPDATE observations SET observed_at = ?, last_seen_at = ? WHERE id = ?",
+                updates,
+            )
 
     def upsert_observation(
         self,
@@ -257,7 +315,7 @@ class Database:
         specs: dict[str, Any],
         observed_at: str | None = None,
     ) -> int:
-        ts = observed_at or _utcnow_iso()
+        ts = _normalize_utc_iso(observed_at)
         current_dt = _parse_iso(ts)
         price_val = float(price)
         in_stock_bool = bool(in_stock)
@@ -362,7 +420,7 @@ class Database:
             cur = self._conn.execute(
                 """
                 DELETE FROM observations
-                WHERE julianday(COALESCE(last_seen_at, observed_at)) < julianday(?)
+                WHERE COALESCE(last_seen_at, observed_at) < ?
                 """,
                 (cutoff_iso,),
             )
@@ -381,7 +439,7 @@ class Database:
         best_promo_code: str | None,
         seen_at: str | None = None,
     ) -> None:
-        ts = seen_at or _utcnow_iso()
+        ts = _normalize_utc_iso(seen_at)
         with self._lock:
             self._conn.execute(
                 """
@@ -418,7 +476,7 @@ class Database:
         alerted_price: float,
         alerted_at: str | None = None,
     ) -> None:
-        ts = alerted_at or _utcnow_iso()
+        ts = _normalize_utc_iso(alerted_at)
         with self._lock:
             self._conn.execute(
                 """
@@ -466,7 +524,7 @@ class Database:
         last_error: str | None,
         checked_at: str | None = None,
     ) -> None:
-        ts = checked_at or _utcnow_iso()
+        ts = _normalize_utc_iso(checked_at)
         with self._lock:
             self._conn.execute(
                 """
@@ -524,7 +582,7 @@ class Database:
         error: str | None = None,
         created_at: str | None = None,
     ) -> int:
-        ts = created_at or _utcnow_iso()
+        ts = _normalize_utc_iso(created_at)
         with self._lock:
             cur = self._conn.execute(
                 """
@@ -644,7 +702,7 @@ class Database:
         mark_startup_sent: bool = False,
     ) -> None:
         now = _utcnow_iso()
-        run_ts = last_run_at or now
+        run_ts = _normalize_utc_iso(last_run_at) if last_run_at else now
         with self._lock:
             existing = self.get_watch_runtime(watch_id)
             startup_ts = (
@@ -723,7 +781,7 @@ class Database:
                     COUNT(*) AS observation_count
                 FROM observations
                 WHERE watch_id IN ({placeholders})
-                  AND julianday(COALESCE(last_seen_at, observed_at)) >= julianday(?)
+                  AND COALESCE(last_seen_at, observed_at) >= ?
                 GROUP BY watch_id, date(COALESCE(last_seen_at, observed_at))
                 ORDER BY watch_id ASC, day ASC
                 """,  # noqa: S608
@@ -747,7 +805,7 @@ class Database:
                         *,
                         ROW_NUMBER() OVER (
                             PARTITION BY watch_id
-                            ORDER BY COALESCE(last_seen_at, observed_at) DESC, observed_at DESC, id DESC
+                            ORDER BY COALESCE(last_seen_at, observed_at) DESC, id DESC
                         ) AS _rn
                     FROM observations
                     WHERE watch_id IN ({placeholders})
