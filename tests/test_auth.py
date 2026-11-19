@@ -86,9 +86,11 @@ def _make_scope_request(
     *,
     client_host: str | None = "testclient",
     headers: list[tuple[bytes, bytes]] | None = None,
+    scheme: str = "http",
 ) -> Request:
     scope: dict[str, Any] = {
         "type": "http",
+        "scheme": scheme,
         "method": "POST",
         "path": "/login",
         "headers": headers or [],
@@ -96,6 +98,16 @@ def _make_scope_request(
     if client_host is not None:
         scope["client"] = (client_host, 12345)
     return Request(scope)
+
+
+def _parse_set_cookies(res: Any) -> dict[str, Any]:
+    parsed: dict[str, Any] = {}
+    for header_val in res.headers.get_list("set-cookie"):
+        sc = SimpleCookie()
+        sc.load(header_val)
+        for name, morsel in sc.items():
+            parsed[name] = morsel
+    return parsed
 
 
 def test_scrypt_hash_and_verify() -> None:
@@ -398,7 +410,7 @@ def test_login_cookie_flags_tamper_expiry_and_logout(
                 manager.verify_session_token(tok, now=1_000 + auth.SESSION_TTL_SECONDS + 1) is None
             )
 
-            # Logout clears cookie and invalidates session usage.
+            # Logout clears cookie, revokes session server-side, and rejects replay.
             dash = client.get("/")
             csrf = _extract_meta_csrf(dash.text)
             logout_res = client.post(
@@ -409,6 +421,79 @@ def test_login_cookie_flags_tamper_expiry_and_logout(
             assert logout_res.status_code == 303
             assert logout_res.headers["location"] == "/login"
             assert client.get("/api/watches").status_code == 401
+
+            with TestClient(app) as replay_client:
+                replay_client.cookies.set(auth.SESSION_COOKIE_NAME, orig_tok)
+                assert replay_client.get("/api/watches").status_code == 401
+    finally:
+        db.close()
+
+
+def test_logout_revokes_session_server_side_and_prunes_expired(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, _, db = _make_auth_app(tmp_path, monkeypatch)
+    try:
+        with TestClient(app) as client:
+            _, login_res = _login_client(client)
+            assert login_res.status_code == 303
+            cookies = _parse_set_cookies(login_res)
+            captured_session = cookies[auth.SESSION_COOKIE_NAME].value
+
+            # Captured cookie works from another client before logout.
+            with TestClient(app) as second_client:
+                second_client.cookies.set(auth.SESSION_COOKIE_NAME, captured_session)
+                assert second_client.get("/api/watches").status_code == 200
+
+            dash = client.get("/")
+            csrf = _extract_meta_csrf(dash.text)
+            logout_res = client.post(
+                "/logout",
+                data={"csrf_token": csrf},
+                follow_redirects=False,
+            )
+            assert logout_res.status_code == 303
+            assert logout_res.headers["location"] == "/login"
+
+            # Replaying the captured session cookie after logout is rejected with 401.
+            with TestClient(app) as replay_client:
+                replay_client.cookies.set(auth.SESSION_COOKIE_NAME, captured_session)
+                assert replay_client.get("/api/watches").status_code == 401
+                browser_res = replay_client.get("/", follow_redirects=False)
+                assert browser_res.status_code == 303
+                assert browser_res.headers["location"].startswith("/login")
+
+        # Unit test revocation & pruning on AuthManager.
+        manager = auth.AuthManager.from_env()
+        tok1, sid1 = manager.create_session_token(now=1_000)
+        tok2, sid2 = manager.create_session_token(now=2_000)
+        exp1 = 1_000 + auth.SESSION_TTL_SECONDS
+
+        assert manager.revoke_session_token(None) is False
+        assert manager.revoke_session_token("invalid.token") is False
+        assert manager.revoke_session_token(tok1, now=exp1 + 1) is False
+        assert sid1 not in manager._revoked_sessions
+
+        assert manager.revoke_session_token(tok1, now=1_500) is True
+        assert manager._revoked_sessions[sid1] == exp1
+        assert manager.verify_session_token(tok1, now=1_500) is None
+
+        # At exact expiry boundary (now == exp1), entry is kept and rejected.
+        assert manager.verify_session_token(tok1, now=exp1) is None
+        assert sid1 in manager._revoked_sessions
+
+        # Once now > exp1, verifying another active token prunes the expired entry.
+        assert manager.verify_session_token(tok2, now=exp1 + 1) is not None
+        assert sid1 not in manager._revoked_sessions
+
+        # Pruning also runs during revoke_session_token.
+        tok3, sid3 = manager.create_session_token(now=3_000)
+        assert manager.revoke_session_token(tok2, now=2_500) is True
+        assert sid2 in manager._revoked_sessions
+        assert manager.revoke_session_token(tok3, now=2_000 + auth.SESSION_TTL_SECONDS + 1) is True
+        assert sid2 not in manager._revoked_sessions
+        assert sid3 in manager._revoked_sessions
     finally:
         db.close()
 

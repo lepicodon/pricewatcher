@@ -46,6 +46,7 @@ from pricewatcher.http_client import SSRFBlockedError, validate_outbound_url
 from pricewatcher.notifiers.base import NotificationDispatcher
 from pricewatcher.notifiers.waha import WahaClient
 from pricewatcher.web.auth import (
+    SESSION_COOKIE_NAME,
     AuthManager,
     prefers_json,
     safe_next_path,
@@ -446,6 +447,7 @@ async def login_submit(request: Request) -> HTMLResponse | JSONResponse | Redire
 @router.post("/logout", response_model=None)
 async def logout_submit(request: Request) -> RedirectResponse:
     auth: AuthManager = request.app.state.auth
+    auth.revoke_session_token(request.cookies.get(SESSION_COOKIE_NAME))
     response = RedirectResponse(url="/login", status_code=303)
     auth.clear_session_cookies(response, request)
     return response

@@ -363,6 +363,7 @@ class AuthManager:
             if isinstance(trusted_proxies, str)
             else tuple(trusted_proxies)
         )
+        self._revoked_sessions: dict[str, int] = {}
 
     @classmethod
     def from_env(cls) -> AuthManager:
@@ -469,7 +470,26 @@ class AuthManager:
         current_ts = int(time.time()) if now is None else now
         if current_ts > exp or iat > current_ts + 60:
             return None
+        self._prune_revoked_sessions(current_ts)
+        if sid in self._revoked_sessions:
+            return None
         return data
+
+    def _prune_revoked_sessions(self, now: int) -> None:
+        """Remove revoked session IDs whose expiration time has passed."""
+        expired = [sid for sid, exp in self._revoked_sessions.items() if exp < now]
+        for sid in expired:
+            del self._revoked_sessions[sid]
+
+    def revoke_session_token(self, token: str | None, *, now: int | None = None) -> bool:
+        """Verify and revoke an active session token in memory until its expiry."""
+        current_ts = int(time.time()) if now is None else now
+        payload = self.verify_session_token(token, now=current_ts)
+        if payload is None:
+            return False
+        self._prune_revoked_sessions(current_ts)
+        self._revoked_sessions[str(payload["sid"])] = int(payload["exp"])
+        return True
 
     def create_csrf_token(self, *, sub: str) -> str:
         """Create an HMAC-signed CSRF token bound to subject `sub`."""
