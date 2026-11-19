@@ -310,8 +310,7 @@ def test_slickdeals_rss_filters_stale_and_expired_deals() -> None:
     recent = parse_rss_feed(xml_text, sd_src, now=ref_now)
     assert len(recent) == 2
     assert all(
-        item.raw_specs["published_at"].startswith(("2026-11-06", "2026-11-04"))
-        for item in recent
+        item.raw_specs["published_at"].startswith(("2026-11-06", "2026-11-04")) for item in recent
     )
 
     # Disabling max_age_days with 0 returns all entries in the fixture
