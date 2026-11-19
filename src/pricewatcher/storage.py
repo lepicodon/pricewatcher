@@ -12,7 +12,7 @@ import sqlite3
 import threading
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _DEDUP_WINDOW = timedelta(hours=24)
 _PRICE_MATCH_EPSILON = 0.005
 
@@ -192,6 +192,7 @@ class Database:
                     latency_ms INTEGER NOT NULL DEFAULT 0,
                     last_checked_at TEXT NOT NULL,
                     last_error TEXT,
+                    fetched_items_json TEXT,
                     PRIMARY KEY (watch_id, source_name)
                 );
 
@@ -214,6 +215,10 @@ class Database:
                 str(row["name"])
                 for row in cur.execute("PRAGMA table_info(observations)").fetchall()
             }
+            sh_cols = {
+                str(row["name"])
+                for row in cur.execute("PRAGMA table_info(source_health)").fetchall()
+            }
             applied_versions = {
                 int(row["version"])
                 for row in cur.execute("SELECT version FROM schema_migrations").fetchall()
@@ -229,10 +234,13 @@ class Database:
             if (
                 effective_version < SCHEMA_VERSION
                 or "last_seen_at" not in obs_cols
+                or "fetched_items_json" not in sh_cols
                 or not idx_exists
             ):
                 if "last_seen_at" not in obs_cols:
                     cur.execute("ALTER TABLE observations ADD COLUMN last_seen_at TEXT;")
+                if "fetched_items_json" not in sh_cols:
+                    cur.execute("ALTER TABLE source_health ADD COLUMN fetched_items_json TEXT;")
                 cur.execute(
                     "UPDATE observations SET last_seen_at = observed_at WHERE last_seen_at IS NULL;"
                 )
@@ -524,15 +532,18 @@ class Database:
         latency_ms: int,
         last_error: str | None,
         checked_at: str | None = None,
+        fetched_items: list[dict[str, Any]] | None = None,
     ) -> None:
         ts = _normalize_utc_iso(checked_at)
+        fetched_json = json.dumps(fetched_items) if fetched_items is not None else None
         with self._lock:
             self._conn.execute(
                 """
                 INSERT INTO source_health (
                     watch_id, source_name, url, http_status, item_count,
-                    matched_count, latency_ms, last_checked_at, last_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    matched_count, latency_ms, last_checked_at, last_error,
+                    fetched_items_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(watch_id, source_name) DO UPDATE SET
                     url = excluded.url,
                     http_status = excluded.http_status,
@@ -540,7 +551,8 @@ class Database:
                     matched_count = excluded.matched_count,
                     latency_ms = excluded.latency_ms,
                     last_checked_at = excluded.last_checked_at,
-                    last_error = excluded.last_error
+                    last_error = excluded.last_error,
+                    fetched_items_json = excluded.fetched_items_json
                 """,
                 (
                     watch_id,
@@ -552,6 +564,7 @@ class Database:
                     latency_ms,
                     ts,
                     last_error,
+                    fetched_json,
                 ),
             )
             self._maybe_commit()
@@ -566,7 +579,21 @@ class Database:
                 """,
                 (watch_id,),
             ).fetchall()
-            return [dict(r) for r in rows]
+            result: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                raw_json = item.pop("fetched_items_json", None)
+                parsed: list[dict[str, Any]] = []
+                if isinstance(raw_json, str) and raw_json:
+                    try:
+                        loaded = json.loads(raw_json)
+                        if isinstance(loaded, list):
+                            parsed = [x for x in loaded if isinstance(x, dict)]
+                    except json.JSONDecodeError:
+                        parsed = []
+                item["fetched_items"] = parsed
+                result.append(item)
+            return result
 
     def record_alert(
         self,

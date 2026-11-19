@@ -401,13 +401,13 @@ def test_schema_v1_to_v2_migration_and_backfill(tmp_path: Path) -> None:
     db = Database(db_path)
     try:
         user_ver = db._conn.execute("PRAGMA user_version").fetchone()[0]
-        assert user_ver == SCHEMA_VERSION == 2
+        assert user_ver == SCHEMA_VERSION == 3
 
         cols = {r["name"] for r in db._conn.execute("PRAGMA table_info(observations)").fetchall()}
         assert "last_seen_at" in cols
 
         mig_rows = db._conn.execute("SELECT version FROM schema_migrations").fetchall()
-        assert [r["version"] for r in mig_rows] == [2]
+        assert [r["version"] for r in mig_rows] == [3]
 
         idx = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_observations_dedup'"
@@ -428,7 +428,7 @@ def test_schema_v1_to_v2_migration_and_backfill(tmp_path: Path) -> None:
     # Re-opening migrated DB is idempotent
     db2 = Database(db_path)
     try:
-        assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db2._conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert len(db2.get_observations("mac-studio")) == 1
     finally:
         db2.close()
@@ -1679,4 +1679,85 @@ async def test_scheduler_loop_prune_error_logs_and_still_polls_active_watches(
             await asyncio.wait_for(sched_task, timeout=2.0)
     finally:
         pw_logger.removeHandler(prune_err_waiter)
+        db.close()
+
+
+async def test_poll_engine_replaces_last_fetched_snapshot_per_source(tmp_path: Path) -> None:
+    store, _, watch = _setup_store(tmp_path)
+    db = Database(tmp_path / "data" / "test.db")
+    try:
+        poll_round = 0
+
+        class SnapshotAdapter:
+            async def fetch(self, source: SourceConfig, http_ctx: Any = None) -> FetchOutcome:
+                if poll_round == 1:
+                    return FetchOutcome(
+                        http_status=200,
+                        listings=[
+                            Listing(
+                                source_name=source.name,
+                                merchant="Newegg",
+                                title="6TB Hard Drive SATA",
+                                url="https://example.com/hdd-1",
+                                price=129.99,
+                            ),
+                            Listing(
+                                source_name=source.name,
+                                merchant="Amazon",
+                                title="USB-C Cable 6ft",
+                                url="https://example.com/cable",
+                                price=9.99,
+                            ),
+                        ],
+                    )
+                return FetchOutcome(
+                    http_status=200,
+                    listings=[
+                        Listing(
+                            source_name=source.name,
+                            merchant="Best Buy",
+                            title="12TB External Hard Drive",
+                            url="https://example.com/hdd-2",
+                            price=199.99,
+                        ),
+                    ],
+                )
+
+        # Restrict watch rules so one item matches and one is rejected on poll 1
+        watch = watch.model_copy(
+            update={
+                "rules": watch.rules.model_copy(
+                    update={
+                        "include_keyword_groups": [["hard drive"]],
+                        "exclude_keywords": ["12tb"],
+                        "extractors": {},
+                        "tier_by": ["condition"],
+                        "price": watch.rules.price.model_copy(update={"min": 0.0, "max": 1000.0}),
+                    }
+                )
+            }
+        )
+        engine = PollEngine(
+            store=store,
+            db=db,
+            adapter_factory=lambda _: SnapshotAdapter(),  # type: ignore[return-value]
+        )
+
+        poll_round = 1
+        await engine.poll_watch(watch, dry_run=True)
+        health_1 = db.get_source_health(watch.id)
+        assert len(health_1) == 1
+        assert len(health_1[0]["fetched_items"]) == 2
+        assert health_1[0]["fetched_items"][0]["matched"] is True
+        assert health_1[0]["fetched_items"][1]["matched"] is False
+        assert health_1[0]["fetched_items"][1]["reason"]
+
+        poll_round = 2
+        await engine.poll_watch(watch, dry_run=True)
+        health_2 = db.get_source_health(watch.id)
+        assert len(health_2) == 1
+        assert len(health_2[0]["fetched_items"]) == 1
+        assert health_2[0]["fetched_items"][0]["title"] == "12TB External Hard Drive"
+        assert health_2[0]["fetched_items"][0]["matched"] is False
+    finally:
         db.close()

@@ -1014,6 +1014,53 @@
     max-width: min(460px, calc(100% - 2rem));
   }
 
+  dialog.dialog-wide {
+    max-width: min(980px, calc(100% - 2rem));
+    width: 100%;
+  }
+
+  .dialog-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .dialog-head h2 {
+    margin: 0;
+  }
+
+  .dialog-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .dialog-table-wrap {
+    max-height: min(65vh, 560px);
+    overflow-y: auto;
+  }
+
+  .count-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    color: var(--accent, var(--text));
+    cursor: pointer;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    padding: 0.15rem 0.55rem;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .count-btn:hover {
+    border-color: var(--accent, var(--text));
+    background-color: var(--surface-alt, rgba(127, 127, 127, 0.12));
+  }
+
   dialog::backdrop {
     background-color: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(2px);

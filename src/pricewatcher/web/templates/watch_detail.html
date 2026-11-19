@@ -135,7 +135,23 @@
         <tr>
           <td>{{ sh.source_name }}</td>
           <td class="num">{{ sh.http_status or "&mdash;" }}</td>
-          <td class="num">{{ sh.item_count }}</td>
+          <td class="num">
+            {% if sh.fetched_items %}
+              <button
+                type="button"
+                class="count-btn"
+                data-fetched-modal
+                data-source-name="{{ sh.source_name }}"
+                data-fetched-count="{{ sh.item_count }}"
+                data-matched-count="{{ sh.matched_count }}"
+                data-last-checked="{{ sh.last_checked_at[:19] | replace('T', ' ') }}"
+                data-fetched-items='{{ sh.fetched_items | tojson }}'
+                title="Inspect last fetched items from {{ sh.source_name }}"
+              >{{ sh.item_count }}</button>
+            {% else %}
+              {{ sh.item_count }}
+            {% endif %}
+          </td>
           <td class="num">{{ sh.matched_count }}</td>
           <td class="num">{{ sh.latency_ms }} ms</td>
           <td class="num">{{ sh.last_checked_at[:19] | replace("T", " ") }}</td>
@@ -195,4 +211,34 @@
   <p class="muted">No alerts triggered for this watch yet.</p>
   {% endif %}
 </section>
+
+<dialog id="source-fetched-dialog" class="dialog-wide" closedby="any" aria-labelledby="source-fetched-title">
+  <div class="dialog-head">
+    <div>
+      <h2 id="source-fetched-title">Fetched Items</h2>
+      <p id="source-fetched-meta" class="muted"></p>
+    </div>
+    <button type="button" class="btn btn-sm" commandfor="source-fetched-dialog" command="close">Close</button>
+  </div>
+  <div class="dialog-filters" role="group" aria-label="Filter fetched items">
+    <button type="button" class="btn btn-sm btn-primary" data-fetched-filter="all">All</button>
+    <button type="button" class="btn btn-sm" data-fetched-filter="matched">Matched</button>
+    <button type="button" class="btn btn-sm" data-fetched-filter="rejected">Rejected</button>
+  </div>
+  <div class="table-wrap dialog-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Status</th>
+          <th scope="col">Price</th>
+          <th scope="col">Merchant</th>
+          <th scope="col">Title</th>
+          <th scope="col">Condition</th>
+          <th scope="col">Reason</th>
+        </tr>
+      </thead>
+      <tbody id="source-fetched-tbody"></tbody>
+    </table>
+  </div>
+</dialog>
 {% endblock %}

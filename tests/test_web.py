@@ -97,6 +97,36 @@ def test_html_pages_render_and_healthz(tmp_path: Path, monkeypatch: pytest.Monke
             assert resp.status_code == 200
             assert "PriceWatcher" in resp.text
 
+        db.upsert_source_health(
+            watch_id="example-watch",
+            source_name="Test Source",
+            url="https://example.com/rss",
+            http_status=200,
+            item_count=1,
+            matched_count=0,
+            latency_ms=42,
+            last_error=None,
+            fetched_items=[
+                {
+                    "title": "Unrelated Item $19.99",
+                    "price": 19.99,
+                    "currency": "USD",
+                    "merchant": "Example",
+                    "url": "https://example.com/item",
+                    "condition": "new",
+                    "in_stock": True,
+                    "matched": False,
+                    "reason": "missing keyword group",
+                    "tier_key": None,
+                }
+            ],
+        )
+        detail_resp = client.get("/watches/example-watch")
+        assert detail_resp.status_code == 200
+        assert 'id="source-fetched-dialog"' in detail_resp.text
+        assert "data-fetched-modal" in detail_resp.text
+        assert "Unrelated Item $19.99" in detail_resp.text
+
         assert client.get("/watches/nonexistent-watch").status_code == 404
     finally:
         db.close()

@@ -204,9 +204,25 @@ class PollEngine:
 
                         report.items_fetched += len(outcome.listings)
                         matched_in_source = 0
+                        fetched_snapshot: list[dict[str, Any]] = []
 
                         for listing in outcome.listings:
                             match = evaluate_listing(listing, watch.rules)
+                            if len(fetched_snapshot) < 100:
+                                fetched_snapshot.append(
+                                    {
+                                        "title": listing.title[:200],
+                                        "price": listing.price,
+                                        "currency": listing.currency,
+                                        "merchant": listing.merchant,
+                                        "url": listing.url,
+                                        "condition": match.normalized_condition,
+                                        "in_stock": listing.in_stock,
+                                        "matched": match.matched,
+                                        "reason": match.reason,
+                                        "tier_key": match.tier_key if match.matched else None,
+                                    }
+                                )
                             if not match.matched:
                                 continue
                             matched_in_source += 1
@@ -256,6 +272,7 @@ class PollEngine:
                             latency_ms=outcome.latency_ms,
                             last_error=outcome.error,
                             checked_at=now_iso,
+                            fetched_items=fetched_snapshot,
                         )
 
                     for tier_key, best_listing in local_bests.items():
