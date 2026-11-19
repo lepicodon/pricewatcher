@@ -354,12 +354,8 @@ def _parse_watch_from_form(form: Any) -> WatchConfig:
 
 
 @router.get("/healthz")
-async def healthz(request: Request) -> JSONResponse:
-    store: ConfigStore = request.app.state.store
-    db = request.app.state.db
-    watches = store.load_watches()
-    db.get_alerts(limit=1)
-    return JSONResponse({"status": "ok", "watches": len(watches), "db": "ok"})
+async def healthz() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 
 @router.get("/login", response_model=None)
@@ -560,15 +556,15 @@ async def watch_detail(
     )
 
 
-@router.get("/manage", response_class=HTMLResponse)
-async def manage_watches(
+def _build_manage_view(
     request: Request,
+    store: ConfigStore,
+    *,
     edit: str | None = None,
     new: bool = False,
     flash: str | None = None,
     flash_ok: bool = True,
-) -> HTMLResponse:
-    store: ConfigStore = request.app.state.store
+) -> dict[str, Any]:
     editing: WatchConfig | None = None
     is_edit = False
     resolved_flash = flash
@@ -588,7 +584,7 @@ async def manage_watches(
             resolved_flash = str(exc)
             resolved_ok = False
 
-    ctx = _manage_context(
+    return _manage_context(
         request,
         store,
         editing=editing,
@@ -596,13 +592,58 @@ async def manage_watches(
         flash=resolved_flash,
         flash_ok=resolved_ok,
     )
+
+
+def _build_form_error_context(
+    request: Request,
+    store: ConfigStore,
+    *,
+    raw_id: str,
+    is_edit: bool,
+    flash: str,
+) -> dict[str, Any]:
+    existing = store.get_watch(raw_id) if raw_id and WATCH_ID_RE.match(raw_id) else None
+    return _manage_context(
+        request,
+        store,
+        editing=existing,
+        is_edit=is_edit and existing is not None,
+        flash=flash,
+        flash_ok=False,
+    )
+
+
+def _load_packs_page_data(store: ConfigStore) -> tuple[SettingsConfig, list[str]]:
+    settings = store.load_settings()
+    builtin_pack_ids = sorted(load_builtin_source_packs().keys())
+    return settings, builtin_pack_ids
+
+
+@router.get("/manage", response_class=HTMLResponse)
+async def manage_watches(
+    request: Request,
+    edit: str | None = None,
+    new: bool = False,
+    flash: str | None = None,
+    flash_ok: bool = True,
+) -> HTMLResponse:
+    store: ConfigStore = request.app.state.store
+    ctx = await asyncio.to_thread(
+        _build_manage_view,
+        request,
+        store,
+        edit=edit,
+        new=new,
+        flash=flash,
+        flash_ok=flash_ok,
+    )
     return templates.TemplateResponse(request, "manage.html", ctx)
 
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request) -> HTMLResponse:
     store: ConfigStore = request.app.state.store
-    settings = store.load_settings()
+    settings = await asyncio.to_thread(store.load_settings)
     waha_health = await WahaClient(settings.notifications.waha).check_health()
     waha_key_set = bool(settings.notifications.waha.effective_api_key())
     user, pwd = settings.notifications.email.effective_credentials()
@@ -624,8 +665,7 @@ async def settings_page(request: Request) -> HTMLResponse:
 @router.get("/packs", response_class=HTMLResponse)
 async def packs_page(request: Request) -> HTMLResponse:
     store: ConfigStore = request.app.state.store
-    settings = store.load_settings()
-    builtin_pack_ids = sorted(load_builtin_source_packs().keys())
+    settings, builtin_pack_ids = await asyncio.to_thread(_load_packs_page_data, store)
     return templates.TemplateResponse(
         request,
         "packs.html",
@@ -641,7 +681,7 @@ async def packs_page(request: Request) -> HTMLResponse:
 @router.get("/api/watches")
 async def api_list_watches(request: Request) -> JSONResponse:
     store: ConfigStore = request.app.state.store
-    watches = store.load_watches()
+    watches = await asyncio.to_thread(store.load_watches)
     return JSONResponse({"watches": [w.model_dump(mode="json") for w in watches]})
 
 
@@ -658,7 +698,7 @@ async def api_save_watch(request: Request) -> JSONResponse | HTMLResponse | Redi
             return JSONResponse(
                 {"ok": False, "error": _format_validation_error(exc)}, status_code=422
             )
-        store.save_watch(watch)
+        await asyncio.to_thread(store.save_watch, watch)
         _wake_scheduler(request)
         return JSONResponse({"ok": True, "watch": watch.model_dump(mode="json")})
 
@@ -668,18 +708,17 @@ async def api_save_watch(request: Request) -> JSONResponse | HTMLResponse | Redi
         watch = _parse_watch_from_form(form)
     except (ValueError, ValidationError, json.JSONDecodeError) as exc:
         raw_id = str(form.get("id", "")).strip()
-        existing = store.get_watch(raw_id) if raw_id and WATCH_ID_RE.match(raw_id) else None
-        ctx = _manage_context(
+        ctx = await asyncio.to_thread(
+            _build_form_error_context,
             request,
             store,
-            editing=existing,
-            is_edit=is_edit and existing is not None,
+            raw_id=raw_id,
+            is_edit=is_edit,
             flash=f"Validation error: {_format_validation_error(exc)}",
-            flash_ok=False,
         )
         return templates.TemplateResponse(request, "manage.html", ctx, status_code=422)
 
-    store.save_watch(watch)
+    await asyncio.to_thread(store.save_watch, watch)
     _wake_scheduler(request)
     return _manage_redirect(
         edit=watch.id,
@@ -704,7 +743,7 @@ async def api_toggle_watch(request: Request, watch_id: str) -> JSONResponse | Re
         watch.enabled = not watch.enabled
         return watch
 
-    watch = store.update_watch(clean_id, _toggle)
+    watch = await asyncio.to_thread(store.update_watch, clean_id, _toggle)
     if watch is None:
         return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
 
@@ -748,7 +787,7 @@ async def api_duplicate_watch(request: Request, watch_id: str) -> JSONResponse |
         )
 
     try:
-        cloned = store.update_watch(clean_id, _duplicate)
+        cloned = await asyncio.to_thread(store.update_watch, clean_id, _duplicate)
     except _DuplicateConflictError:
         return JSONResponse(
             {"ok": False, "error": "Could not allocate unique duplicate watch id"},
@@ -776,7 +815,7 @@ async def api_delete_watch(request: Request, watch_id: str) -> JSONResponse:
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid watch id"}, status_code=404)
 
-    if not store.delete_watch(clean_id):
+    if not await asyncio.to_thread(store.delete_watch, clean_id):
         return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
     _wake_scheduler(request)
     return JSONResponse({"ok": True, "deleted": clean_id})
@@ -792,7 +831,7 @@ async def form_delete_watch(request: Request, watch_id: str) -> JSONResponse | R
             return JSONResponse({"ok": False, "error": "Invalid watch id"}, status_code=404)
         return _manage_redirect(flash="Invalid watch id.", flash_ok=False)
 
-    deleted = store.delete_watch(clean_id)
+    deleted = await asyncio.to_thread(store.delete_watch, clean_id)
     _wake_scheduler(request)
     if _prefers_json(request):
         status = 200 if deleted else 404
@@ -811,7 +850,7 @@ async def api_run_watch(request: Request, watch_id: str) -> JSONResponse:
     except ValueError:
         return JSONResponse({"ok": False, "error": "Invalid watch id"}, status_code=404)
 
-    watch = store.get_watch(clean_id)
+    watch = await asyncio.to_thread(store.get_watch, clean_id)
     if watch is None:
         return JSONResponse({"ok": False, "error": "Watch not found"}, status_code=404)
 
@@ -871,7 +910,7 @@ async def api_vendor_search(request: Request) -> JSONResponse:
 @router.get("/api/source-packs")
 async def api_list_source_packs(request: Request) -> JSONResponse:
     store: ConfigStore = request.app.state.store
-    settings = store.load_settings()
+    settings = await asyncio.to_thread(store.load_settings)
     return JSONResponse(
         {
             "source_packs": {
@@ -884,7 +923,7 @@ async def api_list_source_packs(request: Request) -> JSONResponse:
 @router.post("/api/source-packs/sync")
 async def api_sync_source_packs(request: Request) -> JSONResponse:
     store: ConfigStore = request.app.state.store
-    packs_added, sources_added, settings = sync_builtin_source_packs(store)
+    packs_added, sources_added, settings = await asyncio.to_thread(sync_builtin_source_packs, store)
     return JSONResponse(
         {
             "ok": True,
@@ -906,7 +945,7 @@ async def api_render_source_pack(request: Request) -> JSONResponse:
 
     pack_id = str(payload.get("pack_id", "")).strip()
     query = str(payload.get("query", "")).strip() or "Mac Studio"
-    settings = store.load_settings()
+    settings = await asyncio.to_thread(store.load_settings)
     pack = settings.source_packs.get(pack_id)
     if pack is None:
         return JSONResponse({"error": f"Unknown source pack {pack_id!r}"}, status_code=404)
@@ -1075,7 +1114,7 @@ async def api_save_source_pack(request: Request, pack_id: str) -> JSONResponse:
     def _save_pack(settings: SettingsConfig) -> None:
         settings.source_packs[clean_id] = pack
 
-    store.update_settings(_save_pack)
+    await asyncio.to_thread(store.update_settings, _save_pack)
     return JSONResponse({"ok": True, "pack_id": clean_id, "pack": pack.model_dump(mode="json")})
 
 
@@ -1093,7 +1132,7 @@ async def api_delete_source_pack(request: Request, pack_id: str) -> JSONResponse
         del settings.source_packs[clean_id]
 
     try:
-        store.update_settings(_delete_pack)
+        await asyncio.to_thread(store.update_settings, _delete_pack)
     except KeyError:
         return JSONResponse(
             {"ok": False, "error": f"Unknown source pack {clean_id!r}"}, status_code=404
@@ -1128,7 +1167,7 @@ async def api_save_recipient(request: Request, recipient_key: str) -> JSONRespon
     def _save_recipient(settings: SettingsConfig) -> None:
         settings.notifications.recipients[clean_key] = rec
 
-    store.update_settings(_save_recipient)
+    await asyncio.to_thread(store.update_settings, _save_recipient)
     return JSONResponse(
         {"ok": True, "recipient_key": clean_key, "recipient": rec.model_dump(mode="json")}
     )
@@ -1148,7 +1187,7 @@ async def api_delete_recipient(request: Request, recipient_key: str) -> JSONResp
         del settings.notifications.recipients[clean_key]
 
     try:
-        store.update_settings(_delete_recipient)
+        await asyncio.to_thread(store.update_settings, _delete_recipient)
     except KeyError:
         return JSONResponse({"ok": False, "error": f"Unknown user {clean_key!r}"}, status_code=404)
 
@@ -1166,7 +1205,7 @@ async def api_test_alert(request: Request) -> JSONResponse:
         )
 
     recipient_key = str(payload.get("recipient_key", "")).strip()
-    settings = store.load_settings()
+    settings = await asyncio.to_thread(store.load_settings)
     if recipient_key not in settings.notifications.recipients:
         return JSONResponse(
             {"ok": False, "summary": f"Unknown recipient {recipient_key!r}"},

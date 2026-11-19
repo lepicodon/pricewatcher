@@ -6,9 +6,11 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import threading
 from typing import Any
 
 from fastapi.testclient import TestClient
+import httpx
 import pytest
 
 from pricewatcher.adapters.base import FetchOutcome, Listing
@@ -613,5 +615,183 @@ def test_recipient_crud_on_admin_page(tmp_path: Path, monkeypatch: pytest.Monkey
         del_resp = client.delete("/api/recipients/alex", headers=csrf_headers)
         assert del_resp.status_code == 200
         assert "alex" not in store.load_settings().notifications.recipients
+    finally:
+        db.close()
+
+
+def test_healthz_lightweight_skips_disk_and_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, store, db, _ = _make_client(tmp_path, monkeypatch)
+    try:
+
+        def _forbid(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("/healthz must not perform disk or DB I/O")
+
+        monkeypatch.setattr(store, "load_watches", _forbid)
+        monkeypatch.setattr(store, "load_settings", _forbid)
+        monkeypatch.setattr(db, "get_alerts", _forbid)
+
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok"}
+    finally:
+        db.close()
+
+
+async def test_route_handlers_offload_store_io_off_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRICEWATCHER_INSECURE_NO_AUTH", "1")
+    monkeypatch.delenv("PRICEWATCHER_ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv("PRICEWATCHER_SESSION_SECRET", "test-session-secret-32-bytes-minimum")
+
+    repo_cfg = Path(__file__).resolve().parent.parent / "config"
+    cfg_dir = tmp_path / "config"
+    (cfg_dir / "watches").mkdir(parents=True)
+    shutil.copy2(repo_cfg / "settings.example.yaml", cfg_dir / "settings.yaml")
+    shutil.copy2(
+        repo_cfg / "watches" / "example-watch.yaml.example",
+        cfg_dir / "watches" / "example-watch.yaml",
+    )
+
+    store = ConfigStore(cfg_dir)
+    db = Database(tmp_path / "prices.db")
+    engine = PollEngine(
+        store=store,
+        db=db,
+        adapter_factory=lambda _: StaticAdapter(),  # type: ignore[return-value]
+    )
+
+    async def _fake_waha_health(_self: Any) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "status": "down",
+            "url": "http://waha.docker",
+            "session": "pricewatcher",
+            "detail": "mocked",
+        }
+
+    monkeypatch.setattr("pricewatcher.web.router.WahaClient.check_health", _fake_waha_health)
+
+    event_loop_thread = threading.current_thread()
+    recorded_calls: list[tuple[str, threading.Thread]] = []
+
+    for method_name in (
+        "load_watches",
+        "load_settings",
+        "get_watch",
+        "save_watch",
+        "update_watch",
+        "delete_watch",
+        "update_settings",
+    ):
+        orig = getattr(store, method_name)
+
+        def _make_wrapper(name: str, fn: Any) -> Any:
+            def _wrapped(*args: Any, **kwargs: Any) -> Any:
+                recorded_calls.append((name, threading.current_thread()))
+                return fn(*args, **kwargs)
+
+            return _wrapped
+
+        monkeypatch.setattr(store, method_name, _make_wrapper(method_name, orig))
+
+    import pricewatcher.web.router as router_mod
+
+    for fn_name in ("load_builtin_source_packs", "sync_builtin_source_packs"):
+        orig_fn = getattr(router_mod, fn_name)
+
+        def _make_mod_wrapper(name: str, fn: Any) -> Any:
+            def _wrapped(*args: Any, **kwargs: Any) -> Any:
+                recorded_calls.append((name, threading.current_thread()))
+                return fn(*args, **kwargs)
+
+            return _wrapped
+
+        monkeypatch.setattr(router_mod, fn_name, _make_mod_wrapper(fn_name, orig_fn))
+
+    app = create_app(store=store, db=db, engine=engine, start_scheduler=False)
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as async_client:
+            dash_resp = await async_client.get("/")
+            assert dash_resp.status_code == 200
+            csrf = _extract_csrf(dash_resp.text)
+            headers = {"Accept": "application/json", "X-CSRF-Token": csrf}
+
+            recorded_calls.clear()
+
+            assert (await async_client.get("/api/watches")).status_code == 200
+            assert (
+                await async_client.post(
+                    "/api/watches",
+                    json={"id": "thread-watch", "name": "Thread Watch", "query": "Thread Watch"},
+                    headers=headers,
+                )
+            ).status_code == 200
+            assert (
+                await async_client.post("/api/watches/thread-watch/delete", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.post("/api/watches/example-watch/toggle", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.post("/api/watches/example-watch/duplicate", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.delete("/api/watches/example-watch-copy", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.post(
+                    "/api/recipients/thread-test",
+                    json={"name": "Thread Test", "email": "thread@example.com"},
+                    headers=headers,
+                )
+            ).status_code == 200
+            assert (
+                await async_client.delete("/api/recipients/thread-test", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.post(
+                    "/api/source-packs/thread-pack",
+                    json={"label": "Thread Pack", "description": "Test", "sources": []},
+                    headers=headers,
+                )
+            ).status_code == 200
+            assert (
+                await async_client.delete("/api/source-packs/thread-pack", headers=headers)
+            ).status_code == 200
+            assert (await async_client.get("/api/source-packs")).status_code == 200
+            assert (
+                await async_client.post("/api/source-packs/sync", headers=headers)
+            ).status_code == 200
+            assert (
+                await async_client.post(
+                    "/api/source-packs/render",
+                    json={"pack_id": "universal_deals", "query": "Mac Studio"},
+                    headers=headers,
+                )
+            ).status_code == 200
+            assert (await async_client.get("/manage?edit=example-watch")).status_code == 200
+            assert (await async_client.get("/settings")).status_code == 200
+            assert (await async_client.get("/packs")).status_code == 200
+
+        called_methods = {name for name, _ in recorded_calls}
+        assert {
+            "load_watches",
+            "load_settings",
+            "get_watch",
+            "save_watch",
+            "update_watch",
+            "delete_watch",
+            "update_settings",
+            "load_builtin_source_packs",
+            "sync_builtin_source_packs",
+        }.issubset(called_methods)
+        assert all(thread is not event_loop_thread for _, thread in recorded_calls)
     finally:
         db.close()
