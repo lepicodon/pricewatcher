@@ -4,7 +4,9 @@ services:
       context: .
       args:
         INSTALL_PLAYWRIGHT: ${INSTALL_PLAYWRIGHT:-false}
-    image: pricewatcher:latest
+    # To use the pre-built GHCR image instead of building locally,
+    # comment out `build:` above and uncomment:
+    # image: ghcr.io/lepicodon/pricewatcher:latest
     container_name: pricewatcher
     restart: unless-stopped
     ports:
