@@ -94,20 +94,50 @@ def test_dockerfile_hardening() -> None:
     assert "groupadd --gid 10001 appuser" in text
     assert "useradd --create-home --uid 10001 --gid 10001 appuser" in text
     assert "chown -R appuser:appuser /app /data" in text
-
-    user_indices = [idx for idx, line in enumerate(lines) if line.upper().startswith("USER ")]
-    cmd_indices = [idx for idx, line in enumerate(lines) if line.upper().startswith("CMD ")]
-    assert user_indices
-    assert cmd_indices
-    assert lines[user_indices[-1]] == "USER appuser"
-    assert user_indices[-1] < cmd_indices[-1]
-
     assert any(
         line.upper().startswith("HEALTHCHECK ") or "http://127.0.0.1:8080/healthz" in line
         for line in lines
     )
     assert "http://127.0.0.1:8080/healthz" in text
     assert 'CMD ["pricewatcher", "--host", "0.0.0.0", "--port", "8080"]' in text
+
+
+def test_container_volume_ownership_and_privilege_drop(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from pricewatcher.main import _ensure_volume_permissions_and_drop_privileges
+
+    db_dir = tmp_path / "data"
+    cfg_dir = tmp_path / "config"
+    db_dir.mkdir()
+    cfg_dir.mkdir()
+    symlink_secret = cfg_dir / "link_outside"
+    symlink_secret.symlink_to(tmp_path)
+
+    monkeypatch.setenv("PRICEWATCHER_DB_PATH", str(db_dir / "prices.db"))
+    monkeypatch.setenv("PRICEWATCHER_CONFIG_DIR", str(cfg_dir))
+    monkeypatch.delenv("PUID", raising=False)
+    monkeypatch.delenv("PGID", raising=False)
+
+    euid_calls = iter([0, 10001])
+    chowned: list[tuple[Path, int, int]] = []
+    dropped: list[tuple[str, Any]] = []
+
+    monkeypatch.setattr("os.geteuid", lambda: next(euid_calls))
+    monkeypatch.setattr("os.chown", lambda p, u, g: chowned.append((Path(p), u, g)))
+    monkeypatch.setattr("os.setgroups", lambda groups: dropped.append(("setgroups", list(groups))))
+    monkeypatch.setattr("os.setgid", lambda gid: dropped.append(("setgid", gid)))
+    monkeypatch.setattr("os.setuid", lambda uid: dropped.append(("setuid", uid)))
+
+    _ensure_volume_permissions_and_drop_privileges()
+
+    assert (cfg_dir / "watches").is_dir()
+    assert (db_dir, 10001, 10001) in chowned
+    assert (cfg_dir, 10001, 10001) in chowned
+    assert (cfg_dir / "watches", 10001, 10001) in chowned
+    assert all(path != symlink_secret for path, _, _ in chowned)
+    assert dropped == [("setgroups", []), ("setgid", 10001), ("setuid", 10001)]
 
 
 def test_dockerignore_excludes_sensitive_and_dev_files() -> None:

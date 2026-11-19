@@ -105,17 +105,22 @@ def hash_password(password: str) -> str:
     )
     salt_b64 = base64.b64encode(salt).decode("ascii")
     digest_b64 = base64.b64encode(digest).decode("ascii")
-    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${salt_b64}${digest_b64}"
+    return f"scrypt:{SCRYPT_N}:{SCRYPT_R}:{SCRYPT_P}:{salt_b64}:{digest_b64}"
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    """Verify a plaintext password against a stored scrypt$N$r$p$salt$digest hash."""
+    """Verify a plaintext password against a stored scrypt:N:r:p:salt:digest (or legacy $) hash."""
     if not isinstance(password, str) or not isinstance(stored_hash, str):
         return False
     if not password or not stored_hash:
         return False
 
-    parts = stored_hash.strip().split("$")
+    raw = stored_hash.strip()
+    if raw.startswith("scrypt:"):
+        parts = raw.split(":")
+    else:
+        raw = raw.replace("$$", "$")
+        parts = raw.split("$")
     if len(parts) != 6 or parts[0] != "scrypt":
         return False
 

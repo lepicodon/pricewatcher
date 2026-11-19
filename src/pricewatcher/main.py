@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import AsyncIterator
+import contextlib
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -12,6 +13,7 @@ import getpass
 import json
 import logging
 import os
+from pathlib import Path
 import random
 import sys
 from typing import Any
@@ -320,6 +322,80 @@ async def _run_probe(url: str) -> int:
     return 0 if result.classification != "ERROR" else 1
 
 
+def _parse_non_negative_id(env_name: str, default: int) -> int:
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+        if val >= 0:
+            return val
+    except ValueError:
+        pass
+    logger.warning("Invalid %s=%r; falling back to %d", env_name, raw, default)
+    return default
+
+
+def _chown_tree(root_dir: Path, uid: int, gid: int) -> None:
+    """Recursively chown a non-symlink directory tree without following symlinks."""
+    if not root_dir.exists() or root_dir.is_symlink():
+        return
+    with contextlib.suppress(OSError):
+        os.chown(root_dir, uid, gid)
+    for current, dirnames, filenames in os.walk(root_dir, followlinks=False):
+        cur_path = Path(current)
+        for name in (*dirnames, *filenames):
+            entry = cur_path / name
+            if entry.is_symlink():
+                continue
+            with contextlib.suppress(OSError):
+                os.chown(entry, uid, gid)
+
+
+def _ensure_volume_permissions_and_drop_privileges() -> None:
+    """When launched as root in Docker, prepare bind-mount ownership and drop to appuser."""
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return
+
+    uid = _parse_non_negative_id("PUID", 10001)
+    gid = _parse_non_negative_id("PGID", 10001)
+
+    env_db = os.environ.get("PRICEWATCHER_DB_PATH", "").strip()
+    db_path = (
+        Path("data/prices.db")
+        if env_db == "/data/prices.db" and not Path("/data").exists()
+        else Path(env_db or "data/prices.db")
+    )
+    env_cfg = os.environ.get("PRICEWATCHER_CONFIG_DIR", "").strip()
+    cfg_dir = (
+        Path("config")
+        if env_cfg == "/app/config" and not Path("/app/config").exists()
+        else Path(env_cfg or "config")
+    )
+
+    for target_dir in (db_path.parent, cfg_dir, cfg_dir / "watches"):
+        if not target_dir.is_symlink():
+            with contextlib.suppress(OSError):
+                target_dir.mkdir(parents=True, exist_ok=True)
+
+    _chown_tree(db_path.parent, uid, gid)
+    _chown_tree(cfg_dir, uid, gid)
+    home_dir = Path("/home/appuser")
+    if home_dir.is_dir():
+        _chown_tree(home_dir, uid, gid)
+        os.environ["HOME"] = str(home_dir)
+
+    if hasattr(os, "setgroups"):
+        os.setgroups([])
+    if hasattr(os, "setgid"):
+        os.setgid(gid)
+    if hasattr(os, "setuid"):
+        os.setuid(uid)
+
+    if os.geteuid() == 0:
+        raise RuntimeError("Failed to drop root privileges before starting PriceWatcher")
+
+
 def _run_hash_password() -> int:
     if sys.stdin.isatty():
         password = getpass.getpass("Admin password: ")
@@ -370,6 +446,8 @@ def cli(argv: list[str] | None = None) -> int:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+
+    _ensure_volume_permissions_and_drop_privileges()
 
     if args.probe:
         return asyncio.run(_run_probe(args.probe))

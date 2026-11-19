@@ -36,20 +36,18 @@ uv pip install -e ".[dev]"
 4. Generate an admin password hash and session secret in `.env`:
 
 ```bash
-# Prints a scrypt$16384$8$1$... hash for PRICEWATCHER_ADMIN_PASSWORD_HASH
+# Prints a scrypt:16384:8:1:... hash for PRICEWATCHER_ADMIN_PASSWORD_HASH
 .venv/bin/python -m pricewatcher.main hash-password
 # Generate a 32-byte cookie signing secret for PRICEWATCHER_SESSION_SECRET:
 openssl rand -hex 32
 ```
 
-Add both to `.env` (for shell sourcing or `python-dotenv`, wrap `$`-containing `scrypt` hashes in single quotes):
+Add both to `.env` (legacy `$`-delimited `scrypt$...` hashes also remain accepted, though Docker Compose `.env` requires `$$` escaping for `$` hashes):
 
 ```dotenv
-PRICEWATCHER_ADMIN_PASSWORD_HASH='scrypt$16384$8$1$...'
+PRICEWATCHER_ADMIN_PASSWORD_HASH=scrypt:16384:8:1:...
 PRICEWATCHER_SESSION_SECRET=<64-hex-chars>
 ```
-
-> **Note for Docker Compose:** Docker Compose performs `$` variable interpolation on `.env` files. Escape `$` as `$$` inside `.env` when launching via `docker compose`, or export `PRICEWATCHER_ADMIN_PASSWORD_HASH` in your shell environment first.
 
 5. Run the test suite and start PriceWatcher locally on `127.0.0.1:8080`:
 
@@ -71,7 +69,7 @@ Open `http://127.0.0.1:8080` and sign in with your admin password. If `PRICEWATC
 
 | Flag / Subcommand | Description |
 |---|---|
-| `hash-password` / `--hash-password` | Generate a `scrypt$N$r$p$salt$digest` hash for `PRICEWATCHER_ADMIN_PASSWORD_HASH` and exit |
+| `hash-password` / `--hash-password` | Generate a `scrypt:N:r:p:salt:digest` hash for `PRICEWATCHER_ADMIN_PASSWORD_HASH` and exit |
 | `--once` | Run a single poll cycle across enabled watches and exit |
 | `--dry-run` | With `--once`, record observations and simulate alerts without sending WAHA/email messages |
 | `--watch <id>` | With `--once`, poll only the specified watch ID |
@@ -83,7 +81,7 @@ Open `http://127.0.0.1:8080` and sign in with your admin password. If `PRICEWATC
 
 | Variable | Default / Required | Purpose |
 |---|---|---|
-| `PRICEWATCHER_ADMIN_PASSWORD_HASH` | Required in production | Admin `scrypt` password hash (`scrypt$N$r$p$salt$digest`); fails closed (`503`) when unset |
+| `PRICEWATCHER_ADMIN_PASSWORD_HASH` | Required in production | Admin `scrypt` password hash (`scrypt:N:r:p:salt:digest` or legacy `$`-delimited); fails closed (`503`) when unset |
 | `PRICEWATCHER_SESSION_SECRET` | Random ephemeral per boot (warns) | Secret key for HMAC-SHA256 signing of `pw_session` and `pw_csrf` cookies |
 | `PRICEWATCHER_INSECURE_NO_AUTH` | Unset (`""`) | Set to `"1"` ONLY for local development to disable login checks (CSRF still enforced) |
 | `PRICEWATCHER_COOKIE_SECURE` | Unset (`""`) | Set to `"1"` to force `Secure` flag on cookies (auto-enabled on HTTPS / `X-Forwarded-Proto: https`) |
@@ -102,7 +100,7 @@ Open `http://127.0.0.1:8080` and sign in with your admin password. If `PRICEWATC
 
 ## Docker Deployment
 
-Multi-arch images (`linux/amd64` and `linux/arm64`) are built from a digest-pinned Debian Bookworm Python 3.14 base image, install pinned dependencies from [requirements.lock](requirements.lock), run as non-root `appuser` (`uid 10001`), expose port `8080`, and include a `/healthz` `HEALTHCHECK`.
+Multi-arch images (`linux/amd64` and `linux/arm64`) are built from a digest-pinned Debian Bookworm Python 3.14 base image, install pinned dependencies from [requirements.lock](requirements.lock), prepare bind-mounted `/data` and `/app/config` ownership before dropping privileges to non-root `appuser` (`uid 10001`, overridable via `PUID`/`PGID`), expose port `8080`, and include a `/healthz` `HEALTHCHECK`.
 
 ### Option A: Using Docker Compose (Build from Source or Pre-Built GHCR Image)
 

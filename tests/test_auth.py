@@ -81,7 +81,8 @@ def _login_client(
 
 def test_scrypt_hash_and_verify() -> None:
     hashed = auth.hash_password("s3cr3t-password!")
-    parts = hashed.split("$")
+    assert "$" not in hashed
+    parts = hashed.split(":")
     assert len(parts) == 6
     assert parts[0] == "scrypt"
     assert parts[1:4] == ["16384", "8", "1"]
@@ -89,6 +90,8 @@ def test_scrypt_hash_and_verify() -> None:
     assert len(base64.urlsafe_b64decode(parts[5] + "==")) == 32
 
     assert auth.verify_password("s3cr3t-password!", hashed) is True
+    assert auth.verify_password("s3cr3t-password!", hashed.replace(":", "$")) is True
+    assert auth.verify_password("s3cr3t-password!", hashed.replace(":", "$$")) is True
     assert auth.verify_password("wrong-password", hashed) is False
     assert auth.hash_password("same") != auth.hash_password("same")
 
@@ -102,13 +105,14 @@ def test_scrypt_hash_and_verify() -> None:
         "",
         "plain-text",
         "bcrypt$12$abc$def",
+        "scrypt:16384:8:1:onlyfive",
         "scrypt$16384$8$1$onlyfive",
-        "scrypt$notint$8$1$AAAA$BBBB",
-        "scrypt$16385$8$1$AAAA$BBBB",
-        "scrypt$0$8$1$AAAA$BBBB",
-        "scrypt$1073741824$8$1$AAAA$BBBB",
-        "scrypt$16384$8$1$!!!$!!!",
-        "scrypt$16384$8$1$AA$BB",
+        "scrypt:notint:8:1:AAAA:BBBB",
+        "scrypt:16385:8:1:AAAA:BBBB",
+        "scrypt:0:8:1:AAAA:BBBB",
+        "scrypt:1073741824:8:1:AAAA:BBBB",
+        "scrypt:16384:8:1:!!!:!!!",
+        "scrypt:16384:8:1:AA:BB",
     ],
 )
 def test_verify_password_rejects_malformed_hashes_safely(bad_hash: str) -> None:
@@ -126,7 +130,7 @@ def test_cli_hash_password_stdin_and_tty(
     rc = cli(["hash-password"])
     assert rc == 0
     out = capsys.readouterr().out.strip()
-    assert out.startswith("scrypt$16384$8$1$")
+    assert out.startswith("scrypt:16384:8:1:")
     assert auth.verify_password("cli-pass-123", out) is True
 
     empty_stdin = io.StringIO("\n")

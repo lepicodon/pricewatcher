@@ -40,7 +40,7 @@ PriceWatcher is a self-hosted price monitoring daemon and web administration das
 - **Path Traversal & Error Handling:** Resource IDs pass `ConfigStore.sanitize_slug` and parent-directory verification; unexpected server errors return generic `"Internal server error"` responses without internal paths or stack traces.
 
 ### 6. Container & Supply Chain Hardening ([Dockerfile](Dockerfile), [docker-publish.yml](.github/workflows/docker-publish.yml))
-- Digest-pinned base image (`python:3.14-slim-bookworm@sha256:...`), pinned transitive runtime packages in [requirements.lock](requirements.lock) installed with `--no-deps`, and non-root container user (`appuser`, UID/GID `10001`).
+- Digest-pinned base image (`python:3.14-slim-bookworm@sha256:...`), pinned transitive runtime packages in [requirements.lock](requirements.lock) installed with `--no-deps`, and startup privilege drop to non-root `appuser` (`UID/GID 10001` or `PUID`/`PGID`) after preparing bind-mounted `/data` and `/app/config` ownership.
 - CI workflow pins all GitHub Actions by 40-char commit SHA, restricts workflow permissions per job, and runs `ruff check`, `ruff format --check`, `mypy`, `pip-audit`, and `pytest` prior to image publishing.
 
 ## Reporting a Vulnerability

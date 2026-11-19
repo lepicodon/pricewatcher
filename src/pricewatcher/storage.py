@@ -48,11 +48,30 @@ class Database:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._tx_depth = 0
-        self._conn = sqlite3.connect(
-            str(self.db_path),
-            check_same_thread=False,
-            timeout=15.0,
-        )
+        try:
+            self._conn = sqlite3.connect(
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=15.0,
+            )
+        except sqlite3.OperationalError as exc:
+            parent_dir = self.db_path.parent
+            uid_gid = (
+                f"{os.geteuid()}:{os.getegid()}"
+                if hasattr(os, "geteuid") and hasattr(os, "getegid")
+                else "unknown"
+            )
+            parent_info = "missing"
+            if parent_dir.exists():
+                try:
+                    st = parent_dir.stat()
+                    parent_info = f"mode={oct(st.st_mode & 0o777)} uid={st.st_uid} gid={st.st_gid}"
+                except OSError:
+                    parent_info = "unreadable"
+            raise sqlite3.OperationalError(
+                f"Unable to open SQLite database at {self.db_path} "
+                f"(process uid:gid={uid_gid}, parent {parent_dir} {parent_info}): {exc}"
+            ) from exc
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 

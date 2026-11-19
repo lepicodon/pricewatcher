@@ -27,8 +27,7 @@ RUN groupadd --gid 10001 appuser && \
     mkdir -p /data /app/config/watches && \
     chown -R appuser:appuser /app /data
 
-USER appuser
-
+# Entrypoint prepares bind-mounted /data and /app/config ownership and drops to appuser (10001:10001)
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
