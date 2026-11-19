@@ -218,14 +218,22 @@ def prefers_json(request: Request) -> bool:
     return "application/json" in accept or "application/json" in content_type
 
 
-def is_https_request(request: Request, *, cookie_secure_env: bool = False) -> bool:
+def is_https_request(
+    request: Request,
+    *,
+    cookie_secure_env: bool = False,
+    trusted_proxies: tuple[TrustedProxyEntry, ...] = (),
+) -> bool:
     """Detect whether cookies should be marked Secure for this request."""
     if cookie_secure_env:
         return True
     if request.url.scheme.lower() == "https":
         return True
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    return forwarded_proto == "https"
+    peer_ip = request.client.host if request.client and request.client.host else None
+    if is_trusted_proxy(peer_ip, trusted_proxies):
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        return forwarded_proto == "https"
+    return False
 
 
 def parse_trusted_proxies(raw: str | None) -> tuple[TrustedProxyEntry, ...]:
@@ -519,7 +527,11 @@ class AuthManager:
         csrf_token: str,
     ) -> None:
         """Attach HttpOnly SameSite=strict session and session-bound CSRF cookies."""
-        secure = is_https_request(request, cookie_secure_env=self.cookie_secure_env)
+        secure = is_https_request(
+            request,
+            cookie_secure_env=self.cookie_secure_env,
+            trusted_proxies=self.trusted_proxies,
+        )
         response.set_cookie(
             key=SESSION_COOKIE_NAME,
             value=session_token,
@@ -541,7 +553,11 @@ class AuthManager:
 
     def set_csrf_cookie(self, response: Response, request: Request, *, csrf_token: str) -> None:
         """Attach HttpOnly SameSite=strict CSRF cookie."""
-        secure = is_https_request(request, cookie_secure_env=self.cookie_secure_env)
+        secure = is_https_request(
+            request,
+            cookie_secure_env=self.cookie_secure_env,
+            trusted_proxies=self.trusted_proxies,
+        )
         response.set_cookie(
             key=CSRF_COOKIE_NAME,
             value=csrf_token,
@@ -554,7 +570,11 @@ class AuthManager:
 
     def clear_session_cookies(self, response: Response, request: Request) -> None:
         """Delete session and CSRF cookies."""
-        secure = is_https_request(request, cookie_secure_env=self.cookie_secure_env)
+        secure = is_https_request(
+            request,
+            cookie_secure_env=self.cookie_secure_env,
+            trusted_proxies=self.trusted_proxies,
+        )
         for name in (SESSION_COOKIE_NAME, CSRF_COOKIE_NAME):
             response.delete_cookie(
                 key=name,

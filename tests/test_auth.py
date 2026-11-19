@@ -502,24 +502,157 @@ def test_secure_cookie_flag_on_https_and_forwarded_proto(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app, _, db = _make_auth_app(tmp_path, monkeypatch)
+    monkeypatch.delenv("PRICEWATCHER_TRUSTED_PROXIES", raising=False)
+    app, _, db = _make_auth_app(tmp_path / "untrusted", monkeypatch)
     try:
         with TestClient(app, base_url="https://pricewatcher.local") as https_client:
             _, res = _login_client(https_client)
             assert res.status_code == 303
-            assert "Secure" in "\n".join(res.headers.get_list("set-cookie"))
+            cookies = _parse_set_cookies(res)
+            assert bool(cookies[auth.SESSION_COOKIE_NAME]["secure"]) is True
+            assert bool(cookies[auth.CSRF_COOKIE_NAME]["secure"]) is True
 
-        with TestClient(app) as proxy_client:
-            login_page = proxy_client.get("/login")
+        # Untrusted X-Forwarded-Proto: https must NOT mark cookies Secure.
+        with TestClient(app) as untrusted_client:
+            login_page = untrusted_client.get("/login", headers={"X-Forwarded-Proto": "https"})
+            login_cookies = _parse_set_cookies(login_page)
+            assert not login_cookies[auth.CSRF_COOKIE_NAME]["secure"]
+
             csrf = _extract_meta_csrf(login_page.text)
-            res = proxy_client.post(
+            res = untrusted_client.post(
                 "/login",
                 data={"password": "correct-horse-battery", "csrf_token": csrf},
                 headers={"X-Forwarded-Proto": "https"},
                 follow_redirects=False,
             )
             assert res.status_code == 303
-            assert "Secure" in "\n".join(res.headers.get_list("set-cookie"))
+            post_cookies = _parse_set_cookies(res)
+            assert not post_cookies[auth.SESSION_COOKIE_NAME]["secure"]
+            assert not post_cookies[auth.CSRF_COOKIE_NAME]["secure"]
+    finally:
+        db.close()
+
+    # Trusted proxy with X-Forwarded-Proto: https DOES mark cookies Secure.
+    monkeypatch.setenv("PRICEWATCHER_TRUSTED_PROXIES", "testclient,172.16.0.0/12")
+    trusted_app, _, trusted_db = _make_auth_app(tmp_path / "trusted", monkeypatch)
+    try:
+        with TestClient(trusted_app) as proxy_client:
+            login_page = proxy_client.get("/login", headers={"X-Forwarded-Proto": "https"})
+            login_cookies = _parse_set_cookies(login_page)
+            assert bool(login_cookies[auth.CSRF_COOKIE_NAME]["secure"]) is True
+
+            # Pass the Secure cookie via Cookie header to simulate the reverse proxy
+            # forwarding browser cookies from TLS termination over plain HTTP backend.
+            login_csrf_val = login_cookies[auth.CSRF_COOKIE_NAME].value
+            csrf = _extract_meta_csrf(login_page.text)
+            res = proxy_client.post(
+                "/login",
+                data={"password": "correct-horse-battery", "csrf_token": csrf},
+                headers={
+                    "X-Forwarded-Proto": "https",
+                    "Cookie": f"{auth.CSRF_COOKIE_NAME}={login_csrf_val}",
+                },
+                follow_redirects=False,
+            )
+            assert res.status_code == 303
+            post_cookies = _parse_set_cookies(res)
+            assert bool(post_cookies[auth.SESSION_COOKIE_NAME]["secure"]) is True
+            assert bool(post_cookies[auth.CSRF_COOKIE_NAME]["secure"]) is True
+
+            sess_val = post_cookies[auth.SESSION_COOKIE_NAME].value
+            csrf_val = post_cookies[auth.CSRF_COOKIE_NAME].value
+            proxied_cookie_header = (
+                f"{auth.SESSION_COOKIE_NAME}={sess_val}; {auth.CSRF_COOKIE_NAME}={csrf_val}"
+            )
+            dash = proxy_client.get(
+                "/",
+                headers={"X-Forwarded-Proto": "https", "Cookie": proxied_cookie_header},
+            )
+            assert dash.status_code == 200
+            dash_csrf = _extract_meta_csrf(dash.text)
+            logout_res = proxy_client.post(
+                "/logout",
+                data={"csrf_token": dash_csrf},
+                headers={"X-Forwarded-Proto": "https", "Cookie": proxied_cookie_header},
+                follow_redirects=False,
+            )
+            assert logout_res.status_code == 303
+            logout_cookies = _parse_set_cookies(logout_res)
+            assert bool(logout_cookies[auth.SESSION_COOKIE_NAME]["secure"]) is True
+            assert bool(logout_cookies[auth.CSRF_COOKIE_NAME]["secure"]) is True
+    finally:
+        trusted_db.close()
+
+
+def test_is_https_request_gates_forwarded_proto_on_trusted_proxies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted = auth.parse_trusted_proxies("testclient,172.16.0.0/12")
+
+    # Direct HTTPS and cookie_secure_env always return True.
+    assert (
+        auth.is_https_request(
+            _make_scope_request(
+                scheme="https",
+                headers=[(b"host", b"pricewatcher.local")],
+            ),
+            trusted_proxies=(),
+        )
+        is True
+    )
+    assert (
+        auth.is_https_request(
+            _make_scope_request(scheme="http", client_host="203.0.113.5"),
+            cookie_secure_env=True,
+            trusted_proxies=(),
+        )
+        is True
+    )
+
+    # X-Forwarded-Proto: https only honored when peer matches trusted_proxies.
+    forwarded_headers = [(b"x-forwarded-proto", b"https, http")]
+    assert (
+        auth.is_https_request(
+            _make_scope_request(client_host="203.0.113.5", headers=forwarded_headers),
+            trusted_proxies=trusted,
+        )
+        is False
+    )
+    assert (
+        auth.is_https_request(
+            _make_scope_request(client_host=None, headers=forwarded_headers),
+            trusted_proxies=("*",),
+        )
+        is False
+    )
+    assert (
+        auth.is_https_request(
+            _make_scope_request(client_host="172.18.0.10", headers=forwarded_headers),
+            trusted_proxies=trusted,
+        )
+        is True
+    )
+    assert (
+        auth.is_https_request(
+            _make_scope_request(
+                client_host="172.18.0.10", headers=[(b"x-forwarded-proto", b"http")]
+            ),
+            trusted_proxies=trusted,
+        )
+        is False
+    )
+
+    # Non-matching PRICEWATCHER_TRUSTED_PROXIES ignores spoofed X-Forwarded-Proto.
+    monkeypatch.setenv("PRICEWATCHER_TRUSTED_PROXIES", "172.16.0.0/12")
+    app, _, db = _make_auth_app(tmp_path, monkeypatch)
+    try:
+        with TestClient(app) as client:
+            _, res = _login_client(client, headers={"X-Forwarded-Proto": "https"})
+            assert res.status_code == 303
+            cookies = _parse_set_cookies(res)
+            assert not cookies[auth.SESSION_COOKIE_NAME]["secure"]
+            assert not cookies[auth.CSRF_COOKIE_NAME]["secure"]
     finally:
         db.close()
 
