@@ -10,13 +10,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.lock pyproject.toml README.md ./
+COPY requirements.lock requirements-playwright.lock pyproject.toml README.md ./
 COPY src ./src
 
 RUN pip install --no-cache-dir --no-deps -r requirements.lock && \
     pip install --no-cache-dir --no-deps . && \
     if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
-      pip install --no-cache-dir ".[playwright]" && \
+      pip install --no-cache-dir --no-deps -r requirements-playwright.lock && \
       mkdir -p /ms-playwright && \
       playwright install --with-deps chromium && \
       chmod -R a+rX /ms-playwright; \

@@ -8,17 +8,46 @@ import re
 import tomllib
 from typing import Any
 
+from packaging.requirements import Requirement
+from packaging.version import Version
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SHA_PIN_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 LOCK_LINE_RE = re.compile(r"^([a-z0-9][a-z0-9._-]*)==([0-9A-Za-z.+!_-]+)$")
-PKG_NAME_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 
 def _normalize_pkg(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _parse_lockfile(path: Path, expected_header: str) -> dict[str, str]:
+    assert path.is_file(), f"Missing lockfile: {path}"
+    lock_lines = path.read_text(encoding="utf-8").splitlines()
+    assert lock_lines and lock_lines[0].startswith(expected_header)
+
+    locked: dict[str, str] = {}
+    for line in lock_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = LOCK_LINE_RE.match(stripped)
+        assert match is not None, f"Unpinned or invalid lockfile entry: {stripped!r}"
+        pkg_norm = _normalize_pkg(match.group(1))
+        assert pkg_norm not in locked, f"Duplicate lockfile entry: {pkg_norm!r}"
+        locked[pkg_norm] = match.group(2)
+    return locked
+
+
+def _verify_locked_requirements(deps: list[str], locked: dict[str, str]) -> None:
+    for dep in deps:
+        req = Requirement(dep.strip())
+        pkg_norm = _normalize_pkg(req.name)
+        assert pkg_norm in locked, f"Missing dependency in lockfile: {req.name!r}"
+        assert req.specifier.contains(Version(locked[pkg_norm])), (
+            f"{req.name}=={locked[pkg_norm]} does not satisfy {dep!r}"
+        )
 
 
 def test_pyproject_dependencies_and_lockfile() -> None:
@@ -30,28 +59,17 @@ def test_pyproject_dependencies_and_lockfile() -> None:
     for section in ("pytest", "ruff", "mypy"):
         assert section in pyproject["tool"]
 
-    lock_lines = (REPO_ROOT / "requirements.lock").read_text(encoding="utf-8").splitlines()
-    assert lock_lines[0].startswith("# Generated from pyproject.toml runtime dependencies")
-
-    locked: dict[str, str] = {}
-    for line in lock_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = LOCK_LINE_RE.match(stripped)
-        assert match is not None, f"Unpinned or invalid lockfile entry: {stripped!r}"
-        pkg_norm = _normalize_pkg(match.group(1))
-        locked[pkg_norm] = match.group(2)
+    locked = _parse_lockfile(
+        REPO_ROOT / "requirements.lock",
+        "# Generated from pyproject.toml runtime dependencies",
+    )
 
     # Dev-only packages and package itself must be excluded
     for forbidden in ("pricewatcher", "pytest", "pytest-asyncio", "ruff", "mypy", "pip-audit"):
         assert forbidden not in locked
 
     # Every direct runtime dependency + uvicorn[standard] extras must be locked
-    for dep in deps:
-        name_match = PKG_NAME_RE.match(dep.strip())
-        assert name_match is not None
-        assert _normalize_pkg(name_match.group(1)) in locked
+    _verify_locked_requirements(deps, locked)
 
     for standard_extra in (
         "click",
@@ -69,6 +87,37 @@ def test_pyproject_dependencies_and_lockfile() -> None:
     for pkg_name, pkg_version in locked.items():
         dist = importlib.metadata.distribution(pkg_name)
         assert dist.version == pkg_version
+
+
+def test_playwright_lockfile_and_dockerfile() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pw_deps: list[str] = pyproject["project"]["optional-dependencies"]["playwright"]
+    assert any(_normalize_pkg(Requirement(dep).name) == "playwright" for dep in pw_deps)
+
+    base_locked = _parse_lockfile(
+        REPO_ROOT / "requirements.lock",
+        "# Generated from pyproject.toml runtime dependencies",
+    )
+    pw_locked = _parse_lockfile(
+        REPO_ROOT / "requirements-playwright.lock",
+        "# Generated from pyproject.toml optional dependency: playwright",
+    )
+
+    for expected_pkg in ("greenlet", "playwright", "pyee"):
+        assert expected_pkg in pw_locked
+
+    _verify_locked_requirements(pw_deps, pw_locked)
+
+    for shared_pkg in base_locked.keys() & pw_locked.keys():
+        assert base_locked[shared_pkg] == pw_locked[shared_pkg]
+
+    dockerfile_text = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert (
+        "COPY requirements.lock requirements-playwright.lock pyproject.toml README.md ./"
+        in dockerfile_text
+    )
+    assert "pip install --no-cache-dir --no-deps -r requirements-playwright.lock" in dockerfile_text
+    assert ".[playwright]" not in dockerfile_text
 
 
 def test_dockerfile_hardening() -> None:
@@ -280,8 +329,34 @@ def test_github_workflow_supply_chain_and_permissions() -> None:
     test_job = jobs["test"]
     assert test_job["runs-on"] == "ubuntu-latest"
     assert test_job["permissions"] == {"contents": "read"}
+    setup_python = next(
+        step
+        for step in test_job["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    cache_paths = setup_python["with"]["cache-dependency-path"].splitlines()
+    assert "requirements.lock" in cache_paths
+    assert "requirements-playwright.lock" in cache_paths
+
+    freshness_steps = [
+        step for step in test_job["steps"] if "lockfile" in str(step.get("name", "")).lower()
+    ]
+    assert len(freshness_steps) == 1
+    freshness_run = freshness_steps[0]["run"]
+    assert "python -m pip check" in freshness_run
+    assert "pyproject.toml" in freshness_run
+    assert "requirements.lock" in freshness_run
+    assert "requirements-playwright.lock" in freshness_run
+
     test_runs = "\n".join(step.get("run", "") for step in test_job["steps"])
-    for expected_cmd in ("ruff check", "ruff format --check", "mypy src", "pip-audit", "pytest -v"):
+    for expected_cmd in (
+        "python -m pip check",
+        "ruff check",
+        "ruff format --check",
+        "mypy src",
+        "pip-audit",
+        "pytest -v",
+    ):
         assert expected_cmd in test_runs
 
     build_job = jobs["build-and-push"]

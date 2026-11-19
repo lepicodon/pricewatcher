@@ -36,6 +36,7 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             requirements.lock
+            requirements-playwright.lock
 
       - name: Install dependencies
         run: |
@@ -43,6 +44,70 @@ jobs:
           pip install --no-deps -r requirements.lock
           pip install --no-deps -e .
           pip install -e ".[dev]" pip-audit
+
+      - name: Check lockfile freshness
+        run: |
+          python -m pip check
+          python - <<'EOF'
+          from pathlib import Path
+          import re
+          import tomllib
+          from packaging.requirements import Requirement
+          from packaging.utils import canonicalize_name
+          from packaging.version import Version
+
+          LOCK_LINE_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([0-9A-Za-z.+!_-]+)$")
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+          def load_lock(path_str: str) -> dict[str, Version]:
+              locked: dict[str, Version] = {}
+              for lineno, raw in enumerate(
+                  Path(path_str).read_text(encoding="utf-8").splitlines(),
+                  start=1,
+              ):
+                  line = raw.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  match = LOCK_LINE_RE.match(line)
+                  if not match:
+                      raise SystemExit(
+                          f"{path_str}:{lineno}: unpinned or invalid lockfile entry {line!r}"
+                      )
+                  name = canonicalize_name(match.group(1))
+                  if name in locked:
+                      raise SystemExit(f"{path_str}:{lineno}: duplicate lockfile entry {name!r}")
+                  locked[name] = Version(match.group(2))
+              return locked
+
+          def verify_group(reqs: list[str], locked: dict[str, Version], lock_name: str) -> None:
+              for raw_req in reqs:
+                  req = Requirement(raw_req)
+                  name = canonicalize_name(req.name)
+                  if name not in locked:
+                      raise SystemExit(f"{lock_name}: missing dependency {req.name!r}")
+                  ver = locked[name]
+                  if not req.specifier.contains(ver):
+                      raise SystemExit(
+                          f"{lock_name}: {req.name}=={ver} does not satisfy {raw_req!r}"
+                      )
+
+          base_lock = load_lock("requirements.lock")
+          pw_lock = load_lock("requirements-playwright.lock")
+          verify_group(pyproject["project"]["dependencies"], base_lock, "requirements.lock")
+          verify_group(
+              pyproject["project"]["optional-dependencies"]["playwright"],
+              pw_lock,
+              "requirements-playwright.lock",
+          )
+          for shared in sorted(base_lock.keys() & pw_lock.keys()):
+              if base_lock[shared] != pw_lock[shared]:
+                  raise SystemExit(
+                      f"Conflicting pins for {shared}: {base_lock[shared]} vs {pw_lock[shared]}"
+                  )
+          print(
+              f"Lockfiles verified ({len(base_lock)} runtime, {len(pw_lock)} playwright pins)."
+          )
+          EOF
 
       - name: Run ruff lint check
         run: ruff check
