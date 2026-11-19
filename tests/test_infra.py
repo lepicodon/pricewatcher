@@ -174,7 +174,8 @@ def test_docker_compose_configuration() -> None:
     service = compose["services"]["pricewatcher"]
 
     assert "platform" not in service
-    assert "8080:8080" in service["ports"]
+    assert "127.0.0.1:8080:8080" in service["ports"]
+    assert "8080:8080" not in service["ports"]
     assert "./config:/app/config" in service["volumes"]
     assert "./data:/data" in service["volumes"]
 
@@ -182,6 +183,8 @@ def test_docker_compose_configuration() -> None:
     assert env["PRICEWATCHER_DB_PATH"] == "/data/prices.db"
     assert env["PRICEWATCHER_CONFIG_DIR"] == "/app/config"
     assert env["PRICEWATCHER_INSECURE_NO_AUTH"] == "${PRICEWATCHER_INSECURE_NO_AUTH:-}"
+    assert env["PRICEWATCHER_COOKIE_SECURE"] == "${PRICEWATCHER_COOKIE_SECURE:-1}"
+    assert env["PRICEWATCHER_TRUSTED_PROXIES"] == "${PRICEWATCHER_TRUSTED_PROXIES:-}"
 
     required_env_vars = {
         "TZ",
@@ -191,6 +194,7 @@ def test_docker_compose_configuration() -> None:
         "PRICEWATCHER_SESSION_SECRET",
         "PRICEWATCHER_INSECURE_NO_AUTH",
         "PRICEWATCHER_COOKIE_SECURE",
+        "PRICEWATCHER_TRUSTED_PROXIES",
         "PRICEWATCHER_ALLOW_PRIVATE_HOSTS",
         "PRICEWATCHER_CONTACT_URL",
         "PRICEWATCHER_MAX_RESPONSE_BYTES",
@@ -242,6 +246,7 @@ def test_env_example_documents_all_vars_without_secrets() -> None:
     assert vars_found["PRICEWATCHER_ADMIN_PASSWORD_HASH"] == ""
     assert vars_found["PRICEWATCHER_SESSION_SECRET"] == ""
     assert vars_found["PRICEWATCHER_INSECURE_NO_AUTH"] == ""
+    assert vars_found["PRICEWATCHER_COOKIE_SECURE"] == "1"
     assert vars_found["PRICEWATCHER_TRUSTED_PROXIES"] == ""
     assert vars_found["SMTP_USER"] == ""
     assert vars_found["SMTP_PASS"] == ""

@@ -7,9 +7,9 @@ PriceWatcher is a self-hosted price monitoring daemon and web administration das
 ### 1. Authentication & Brute-Force Protection ([auth.py](src/pricewatcher/web/auth.py))
 - **Fail-Closed Default:** Unconfigured deployments (`PRICEWATCHER_ADMIN_PASSWORD_HASH` unset) return HTTP `503` for all UI and API routes except unauthenticated liveness (`GET /healthz`) and static assets (`/static/*`). Unauthenticated mode requires opting in explicitly via `PRICEWATCHER_INSECURE_NO_AUTH=1`.
 - **Password Storage:** Admin passwords are hashed with stdlib `hashlib.scrypt` (`N=16384`, `r=8`, `p=1`, `dklen=32`, 16-byte random salt) generated via `pricewatcher hash-password` and verified in constant time with `secrets.compare_digest` after strict parameter validation.
-- **Sessions & Cookies:** Sessions use HMAC-SHA256 signed cookies (`pw_session`, 12-hour TTL) backed by `PRICEWATCHER_SESSION_SECRET` (auto-generating a warning-logged ephemeral 32-byte key if unset). Cookies set `HttpOnly` and `SameSite=Strict`, plus `Secure` automatically when accessed via HTTPS / `X-Forwarded-Proto: https` or when `PRICEWATCHER_COOKIE_SECURE=1`.
-- **Rate Limiting:** `POST /login` enforces an in-memory per-IP limit of 5 failed attempts per 15-minute window, returning HTTP `429` with `Retry-After`.
-- **Loopback Default:** The CLI defaults to `--host 127.0.0.1`; containers pass `--host 0.0.0.0` explicitly.
+- **Sessions & Cookies:** Sessions use HMAC-SHA256 signed cookies (`pw_session`, 12-hour TTL) backed by `PRICEWATCHER_SESSION_SECRET` (auto-generating a warning-logged ephemeral 32-byte key if unset). Cookies set `HttpOnly` and `SameSite=Strict`, plus `Secure` automatically when accessed via HTTPS / `X-Forwarded-Proto: https` or when `PRICEWATCHER_COOKIE_SECURE=1` (enabled by default in [docker-compose.yml](docker-compose.yml) and [.env.example](.env.example) for TLS-terminated deployments; override to `0` or empty only for plain-HTTP local dev).
+- **Rate Limiting:** `POST /login` enforces an in-memory per-IP limit of 5 failed attempts per 15-minute window, returning HTTP `429` with `Retry-After`. Behind a reverse proxy, set `PRICEWATCHER_TRUSTED_PROXIES` (default empty/none) to the Traefik/proxy subnet (e.g., `172.18.0.0/16`) so per-client login rate limiting sees real client IPs instead of the proxy address.
+- **Loopback Default:** The CLI defaults to `--host 127.0.0.1`. Containers pass `--host 0.0.0.0` explicitly for internal Docker networking (e.g., Traefik), while [docker-compose.yml](docker-compose.yml) binds the published host port to `"127.0.0.1:8080:8080"` (loopback-only) to avoid exposing plain HTTP on LAN interfaces bypassing Traefik TLS.
 
 ### 2. Cross-Site Request Forgery (CSRF)
 - Every `POST`, `PUT`, `DELETE`, and `PATCH` request (including `/login`, `/logout`, HTML form actions, and JSON `/api/*` endpoints) must pass:
@@ -39,8 +39,9 @@ PriceWatcher is a self-hosted price monitoring daemon and web administration das
 - **ReDoS Prevention ([config.py](src/pricewatcher/config.py), [matcher.py](src/pricewatcher/matcher.py)):** Extractor regex patterns are capped at 256 characters and executed via the third-party `regex` engine with `timeout=0.05` (50 ms).
 - **Path Traversal & Error Handling:** Resource IDs pass `ConfigStore.sanitize_slug` and parent-directory verification; unexpected server errors return generic `"Internal server error"` responses without internal paths or stack traces.
 
-### 6. Container & Supply Chain Hardening ([Dockerfile](Dockerfile), [docker-publish.yml](.github/workflows/docker-publish.yml))
+### 6. Container & Supply Chain Hardening ([Dockerfile](Dockerfile), [docker-compose.yml](docker-compose.yml), [docker-publish.yml](.github/workflows/docker-publish.yml))
 - Digest-pinned base image (`python:3.14-slim-bookworm@sha256:...`), pinned transitive runtime packages in [requirements.lock](requirements.lock) installed with `--no-deps`, and startup privilege drop to non-root `appuser` (`UID/GID 10001` or `PUID`/`PGID`) after preparing bind-mounted `/data` and `/app/config` ownership.
+- [docker-compose.yml](docker-compose.yml) binds `"127.0.0.1:8080:8080"` (loopback-only, preventing LAN plain-HTTP exposure that would bypass Traefik TLS), defaults `PRICEWATCHER_COOKIE_SECURE` to `1`, and passes `PRICEWATCHER_TRUSTED_PROXIES` (default empty/none) for reverse-proxy client IP forwarding.
 - CI workflow pins all GitHub Actions by 40-char commit SHA, restricts workflow permissions per job, and runs `ruff check`, `ruff format --check`, `mypy`, `pip-audit`, and `pytest` prior to image publishing.
 
 ## Reporting a Vulnerability

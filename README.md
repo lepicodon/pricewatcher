@@ -63,7 +63,7 @@ PRICEWATCHER_CONFIG_DIR=./config PRICEWATCHER_DB_PATH=./data/prices.db \
   .venv/bin/python -m pricewatcher.main
 ```
 
-Open `http://127.0.0.1:8080` and sign in with your admin password. If `PRICEWATCHER_ADMIN_PASSWORD_HASH` is unset, PriceWatcher fails closed with HTTP `503` setup instructions unless `PRICEWATCHER_INSECURE_NO_AUTH=1` is explicitly set for local development.
+Open `http://127.0.0.1:8080` and sign in with your admin password (note: `.env.example` sets `PRICEWATCHER_COOKIE_SECURE=1` for TLS deployments; if running plain-HTTP local dev without TLS and your client drops `Secure` cookies, override `PRICEWATCHER_COOKIE_SECURE=0` or leave it empty in `.env`). If `PRICEWATCHER_ADMIN_PASSWORD_HASH` is unset, PriceWatcher fails closed with HTTP `503` setup instructions unless `PRICEWATCHER_INSECURE_NO_AUTH=1` is explicitly set for local development.
 
 ## CLI Reference (`pricewatcher` / `python -m pricewatcher.main`)
 
@@ -84,7 +84,8 @@ Open `http://127.0.0.1:8080` and sign in with your admin password. If `PRICEWATC
 | `PRICEWATCHER_ADMIN_PASSWORD_HASH` | Required in production | Admin `scrypt` password hash (`scrypt:N:r:p:salt:digest` or legacy `$`-delimited); fails closed (`503`) when unset |
 | `PRICEWATCHER_SESSION_SECRET` | Random ephemeral per boot (warns) | Secret key for HMAC-SHA256 signing of `pw_session` and `pw_csrf` cookies |
 | `PRICEWATCHER_INSECURE_NO_AUTH` | Unset (`""`) | Set to `"1"` ONLY for local development to disable login checks (CSRF still enforced) |
-| `PRICEWATCHER_COOKIE_SECURE` | Unset (`""`) | Set to `"1"` to force `Secure` flag on cookies (auto-enabled on HTTPS / `X-Forwarded-Proto: https`) |
+| `PRICEWATCHER_COOKIE_SECURE` | `1` (`docker-compose.yml` / `.env.example`); unset otherwise | Marks `pw_session` and `pw_csrf` cookies `Secure` (enabled by default for TLS-terminated deployments; override to `0` or empty only for plain-HTTP local dev; also auto-enabled on HTTPS / `X-Forwarded-Proto: https`) |
+| `PRICEWATCHER_TRUSTED_PROXIES` | Unset (`""`) | Comma-separated proxy IPs or CIDRs (e.g., Traefik subnet `172.18.0.0/16`) trusted when running behind a reverse proxy so per-client login rate limiting sees real client IPs |
 | `PRICEWATCHER_ALLOW_PRIVATE_HOSTS` | Unset (`""`) | Comma-separated hostnames/IPs explicitly permitted past outbound SSRF IP checks |
 | `PRICEWATCHER_CONTACT_URL` | `https://github.com/your-username/pricewatcher` | Contact URL included in the Reddit `User-Agent` header |
 | `PRICEWATCHER_MAX_RESPONSE_BYTES` | `5242880` (5 MiB) | Maximum streamed HTTP response size allowed per fetch |
@@ -116,6 +117,8 @@ docker network create traefik  # omit if already present
 docker compose up -d --build
 ```
 
+[docker-compose.yml](docker-compose.yml) binds `"127.0.0.1:8080:8080"` (loopback-only, avoiding plain-HTTP LAN exposure that would bypass Traefik TLS) and defaults `PRICEWATCHER_COOKIE_SECURE=1` (matching [.env.example](.env.example); override to `0` or empty only for plain-HTTP local dev). When routing behind Traefik or another reverse proxy, set `PRICEWATCHER_TRUSTED_PROXIES` (default empty/none) to the proxy subnet (e.g., `172.18.0.0/16`) so per-client login rate limiting sees real client IPs.
+
 To pull the pre-built image published by [docker-publish.yml](.github/workflows/docker-publish.yml) instead of building locally, set `image: ghcr.io/lepicodon/pricewatcher:latest` in your Compose override and run `docker compose pull && docker compose up -d`.
 
 To include optional headless Chromium / Playwright support for `render_js: true` watches:
@@ -127,8 +130,8 @@ docker compose up -d
 
 ## Architecture & Security Model
 
-- **Authentication & Bind Safety:** Local CLI defaults to `--host 127.0.0.1`. Authenticated sessions use `HttpOnly; SameSite=Strict` cookies (with `Secure` behind HTTPS proxies), per-IP login rate limiting (5 failed logins per 15 minutes), and session-bound CSRF tokens + `Origin`/`Referer` checks on all state-changing requests. See [SECURITY.md](SECURITY.md) for the full threat model.
-- **Reverse Proxy (HTTPS) Deployment:** Put TLS termination (Traefik, Caddy, or Nginx) in front of container port `8080`, forward `X-Forwarded-Proto: https`, and set `PRICEWATCHER_COOKIE_SECURE=1`. Keep `8080:8080` behind firewall/reverse-proxy access controls or bind to loopback (`127.0.0.1:8080:8080`) in single-host deployments.
+- **Authentication & Bind Safety:** Local CLI defaults to `--host 127.0.0.1`. Authenticated sessions use `HttpOnly; SameSite=Strict` cookies (with `Secure` enabled by default via `PRICEWATCHER_COOKIE_SECURE=1` in [docker-compose.yml](docker-compose.yml) / [.env.example](.env.example) and behind HTTPS proxies), per-IP login rate limiting (5 failed logins per 15 minutes), and session-bound CSRF tokens + `Origin`/`Referer` checks on all state-changing requests. See [SECURITY.md](SECURITY.md) for the full threat model.
+- **Reverse Proxy (HTTPS) Deployment:** Put TLS termination (Traefik, Caddy, or Nginx) in front of container port `8080` and forward `X-Forwarded-Proto: https`. [docker-compose.yml](docker-compose.yml) binds `"127.0.0.1:8080:8080"` (loopback-only, avoiding LAN HTTP exposure bypassing Traefik TLS) and enables `PRICEWATCHER_COOKIE_SECURE=1` by default (override to `0` or empty only for plain-HTTP local dev). Set `PRICEWATCHER_TRUSTED_PROXIES` (default empty/none) to your Traefik/proxy subnet (e.g., `172.18.0.0/16`) so per-client login rate limiting sees real client IPs.
 - **Outbound SSRF & Privacy Controls:** All HTTP fetches resolve DNS via `socket.getaddrinfo`, block loopback/RFC1918/link-local/CGNAT/reserved/multicast IPv4 & IPv6 targets, pin the validated IP per TCP connection while keeping TLS SNI and connection-pool origins isolated by hostname, validate every redirect hop (max 5), and redact WAHA/SMTP credentials from logs and responses. If you intentionally poll an internal test endpoint, add its hostname to `PRICEWATCHER_ALLOW_PRIVATE_HOSTS`.
 - **Engine & Storage:** Poll cycles fetch enabled sources concurrently (bounded semaphore, default 4), schedule active watches independently guarded by per-watch locks, deduplicate unchanged `(watch_id, source_name, url, tier_key)` observations within 24 hours in SQLite schema v2, prune rows older than `server.retention_days` (default 180), and bound regex extractors with `regex` `timeout=0.05` and 256-character max length.
 
