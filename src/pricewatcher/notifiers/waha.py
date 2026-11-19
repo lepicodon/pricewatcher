@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import logging
 import re
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -11,6 +14,8 @@ import httpx
 
 from pricewatcher.config import WahaConfig
 from pricewatcher.http_client import SSRFBlockedError, validate_outbound_url
+
+logger = logging.getLogger("pricewatcher.notifiers.waha")
 
 _API_KEY_HEADER_RE = re.compile(r"(?i)(x-api-key[\"']?\s*[:=]\s*[\"']?)([^\"'\s,;}\]]+)")
 
@@ -39,6 +44,54 @@ class ChannelSendResult:
     error: str | None = None
 
 
+async def _describe_missing_session(
+    client: httpx.AsyncClient,
+    base_url: str,
+    session: str,
+    headers: dict[str, str] | None = None,
+) -> str:
+    """Build a diagnostic message when a WAHA session returns 404."""
+    detail = f"Session {session!r} not found (HTTP 404)"
+    request_headers = headers if headers is not None else {"Content-Type": "application/json"}
+    try:
+        list_resp = await client.get(
+            f"{base_url.rstrip('/')}/api/sessions?all=true",
+            headers=request_headers,
+            timeout=8.0,
+            follow_redirects=False,
+        )
+        if list_resp.status_code == 200:
+            sessions = list_resp.json()
+            if isinstance(sessions, list):
+                names = [
+                    str(item.get("name"))
+                    for item in sessions
+                    if isinstance(item, dict) and item.get("name")
+                ]
+                if names:
+                    detail = f"Session {session!r} not found (available: {', '.join(names)})"
+    except Exception as exc:
+        api_key = next(
+            (val for key, val in request_headers.items() if key.lower() == "x-api-key"),
+            "",
+        )
+        raw_exc = f"{type(exc).__name__}: {exc}"
+        safe_exc = _redact_waha_secret(raw_exc, api_key)
+        if safe_exc != raw_exc:
+            logger.debug(
+                "Failed to list WAHA sessions while inspecting missing session %r: %s",
+                session,
+                safe_exc,
+            )
+        else:
+            logger.debug(
+                "Failed to list WAHA sessions while inspecting missing session %r",
+                session,
+                exc_info=True,
+            )
+    return detail
+
+
 class WahaClient:
     """Client for a WAHA session behind Traefik (or LAN/localhost)."""
 
@@ -58,6 +111,15 @@ class WahaClient:
             headers["X-Api-Key"] = api_key
         return headers
 
+    @asynccontextmanager
+    async def _session_client(self, *, timeout: float) -> AsyncIterator[httpx.AsyncClient]:
+        """Yield the injected client or a short-lived hardened client."""
+        if self._client is not None:
+            yield self._client
+            return
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            yield client
+
     async def check_health(self) -> dict[str, Any]:
         base_url = self.config.effective_url()
         session = self.config.effective_session()
@@ -74,35 +136,22 @@ class WahaClient:
             }
 
         endpoint = f"{base_url}/api/sessions/{session}"
+        headers = self._headers()
         try:
-            if self._client is not None:
-                resp = await self._client.get(
+            async with self._session_client(timeout=8.0) as client:
+                resp = await client.get(
                     endpoint,
-                    headers=self._headers(),
+                    headers=headers,
                     timeout=8.0,
                     follow_redirects=False,
                 )
                 if resp.status_code == 404:
-                    detail = f"Session {session!r} not found (HTTP 404)"
-                    try:
-                        list_resp = await self._client.get(
-                            f"{base_url}/api/sessions?all=true",
-                            headers=self._headers(),
-                            timeout=8.0,
-                            follow_redirects=False,
-                        )
-                        if list_resp.status_code == 200 and isinstance(list_resp.json(), list):
-                            names = [
-                                str(item.get("name"))
-                                for item in list_resp.json()
-                                if isinstance(item, dict) and item.get("name")
-                            ]
-                            if names:
-                                detail = (
-                                    f"Session {session!r} not found (available: {', '.join(names)})"
-                                )
-                    except Exception:
-                        pass
+                    detail = await _describe_missing_session(
+                        client,
+                        base_url,
+                        session,
+                        headers=headers,
+                    )
                     return {
                         "ok": False,
                         "status": "http_404",
@@ -110,36 +159,6 @@ class WahaClient:
                         "session": session,
                         "detail": detail,
                     }
-            else:
-                async with httpx.AsyncClient(timeout=8.0, follow_redirects=False) as client:
-                    resp = await client.get(endpoint, headers=self._headers())
-                    if resp.status_code == 404:
-                        detail = f"Session {session!r} not found (HTTP 404)"
-                        try:
-                            list_resp = await client.get(
-                                f"{base_url}/api/sessions?all=true",
-                                headers=self._headers(),
-                            )
-                            if list_resp.status_code == 200 and isinstance(list_resp.json(), list):
-                                names = [
-                                    str(item.get("name"))
-                                    for item in list_resp.json()
-                                    if isinstance(item, dict) and item.get("name")
-                                ]
-                                if names:
-                                    detail = (
-                                        f"Session {session!r} not found "
-                                        f"(available: {', '.join(names)})"
-                                    )
-                        except Exception:
-                            pass
-                        return {
-                            "ok": False,
-                            "status": "http_404",
-                            "url": base_url,
-                            "session": session,
-                            "detail": detail,
-                        }
         except Exception as exc:
             return {
                 "ok": False,
@@ -201,17 +220,14 @@ class WahaClient:
             "text": text,
         }
         try:
-            if self._client is not None:
-                resp = await self._client.post(
+            async with self._session_client(timeout=15.0) as client:
+                resp = await client.post(
                     endpoint,
                     json=payload,
                     headers=self._headers(),
                     timeout=15.0,
                     follow_redirects=False,
                 )
-            else:
-                async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
-                    resp = await client.post(endpoint, json=payload, headers=self._headers())
         except Exception as exc:
             return ChannelSendResult(
                 ok=False,

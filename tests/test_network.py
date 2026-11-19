@@ -41,7 +41,7 @@ from pricewatcher.http_client import (
 )
 from pricewatcher.notifiers.base import NotificationDispatcher
 from pricewatcher.notifiers.email import EmailClient
-from pricewatcher.notifiers.waha import WahaClient
+from pricewatcher.notifiers.waha import WahaClient, _describe_missing_session
 
 
 def _mock_dns(monkeypatch: pytest.MonkeyPatch, mapping: dict[str, list[tuple[int, str]]]) -> None:
@@ -814,6 +814,98 @@ async def test_waha_follow_redirects_false_and_no_secret_leaks(
     assert "waha-pass" not in (bad_send.error or "")
     assert bad_health["ok"] is False
     assert "waha-pass" not in bad_health["url"]
+
+
+async def test_waha_check_health_404_describes_sessions_and_logs_list_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _mock_dns(monkeypatch, {"waha.docker": [(socket.AF_INET, "172.18.0.5")]})
+    monkeypatch.delenv("WAHA_API_KEY", raising=False)
+    monkeypatch.delenv("WAHA_URL", raising=False)
+    monkeypatch.delenv("WAHA_SESSION", raising=False)
+
+    waha_cfg = WahaConfig(url="http://waha.docker", session="pricewatcher")
+
+    # 1. 404 on session + 200 on session list works for both injected and ephemeral clients
+    def listing_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/sessions/pricewatcher":
+            return httpx.Response(404, json={"error": "not found"})
+        if request.url.path == "/api/sessions" and request.url.params.get("all") == "true":
+            return httpx.Response(200, json=[{"name": "default"}, {"name": "backup"}])
+        return httpx.Response(500)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(listing_handler)) as injected_client:
+        health_injected = await WahaClient(waha_cfg, client=injected_client).check_health()
+        direct_detail = await _describe_missing_session(
+            injected_client,
+            "http://waha.docker",
+            "pricewatcher",
+        )
+
+    assert health_injected["ok"] is False
+    assert health_injected["status"] == "http_404"
+    assert health_injected["detail"] == (
+        "Session 'pricewatcher' not found (available: default, backup)"
+    )
+    assert direct_detail == health_injected["detail"]
+
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(
+            *args,
+            transport=httpx.MockTransport(listing_handler),
+            **kwargs,
+        ),
+    )
+    health_ephemeral = await WahaClient(waha_cfg).check_health()
+    assert health_ephemeral == health_injected
+
+    # 2. Failure while listing sessions is logged at DEBUG with exc_info (not swallowed)
+    monkeypatch.setattr(httpx, "AsyncClient", real_async_client)
+
+    def failing_list_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/sessions/pricewatcher":
+            return httpx.Response(404)
+        raise httpx.ConnectError("session-list-unavailable")
+
+    async with real_async_client(transport=httpx.MockTransport(failing_list_handler)) as client:
+        with caplog.at_level(logging.DEBUG, logger="pricewatcher.notifiers.waha"):
+            health_list_err = await WahaClient(waha_cfg, client=client).check_health()
+
+    assert health_list_err["ok"] is False
+    assert health_list_err["status"] == "http_404"
+    assert health_list_err["detail"] == "Session 'pricewatcher' not found (HTTP 404)"
+    assert any(
+        rec.name == "pricewatcher.notifiers.waha"
+        and rec.levelno == logging.DEBUG
+        and "Failed to list WAHA sessions" in rec.message
+        and rec.exc_info is not None
+        for rec in caplog.records
+    )
+
+    # 3. Secret embedded in a listing-session exception must never leak into debug logs
+    secret_key = "super-secret-waha-list-key-54321"
+    monkeypatch.setenv("WAHA_API_KEY", secret_key)
+    caplog.clear()
+
+    def secret_failing_list_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/sessions/pricewatcher":
+            return httpx.Response(404)
+        raise httpx.ConnectError(f"Failed with X-Api-Key={secret_key}")
+
+    async with real_async_client(
+        transport=httpx.MockTransport(secret_failing_list_handler)
+    ) as secret_client:
+        with caplog.at_level(logging.DEBUG, logger="pricewatcher.notifiers.waha"):
+            health_secret_err = await WahaClient(waha_cfg, client=secret_client).check_health()
+
+    assert health_secret_err["status"] == "http_404"
+    assert health_secret_err["detail"] == "Session 'pricewatcher' not found (HTTP 404)"
+    assert secret_key not in caplog.text
+    assert "[REDACTED]" in caplog.text
 
 
 async def test_email_client_redacts_smtp_credentials_on_failure(
